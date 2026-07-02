@@ -287,11 +287,12 @@ const BUILDINGS = {
 };
 
 const SAVE_KEY = 'ponzu_hoshi_koujou_v1';
-const SAVE_VERSION = 2;   // 現在の最新セーブ形式。マップ形状など互換性を壊す変更をした時だけ上げる
-// マップ構成：第1エリア｜境界壁(BORDER_W、中央にゲート)｜第2エリア
+const SAVE_VERSION = 3;   // 現在の最新セーブ形式。マップ形状など互換性を壊す変更をした時だけ上げる
+// マップ構成：第1エリア｜境界壁｜第2エリア｜境界壁｜第3エリア（境界壁それぞれの中央にゲート）
 const AREA_W = CONFIG.AREA_W, MAP_H = CONFIG.MAP_H, BORDER_W = CONFIG.BORDER_W;
-const W = AREA_W * 2 + BORDER_W, H = MAP_H;
+const W = AREA_W * 3 + BORDER_W * 2, H = MAP_H;
 const GATE_X = AREA_W + Math.floor(BORDER_W / 2), GATE_Y = 24;
+const GATE2_X = AREA_W * 2 + BORDER_W + Math.floor(BORDER_W / 2);
 
 // =====================================================================
 // 乱数（シード付き）
@@ -407,17 +408,17 @@ function genAreaLocal(rng, opts) {
   }
 
   const bx = 24, by = 24; // 第1エリアの拠点位置（G.baseと一致させる）
-  for (let i = 0; i < 7; i++) placeVein(T_IRON, Math.floor(rng() * LN), Math.floor(rng() * MAP_H), 4 + Math.floor(rng() * 4));
-  for (let i = 0; i < 7; i++) placeVein(T_STONE, Math.floor(rng() * LN), Math.floor(rng() * MAP_H), 4 + Math.floor(rng() * 4));
-  for (let i = 0; i < 5; i++) {
+  const ironN = opts.ironVeins ?? 7, stoneN = opts.stoneVeins ?? 7, crystalN = opts.crystalVeins ?? 5;
+  const copperN = opts.copper ? (opts.copperVeins ?? 8) : 0;
+  for (let i = 0; i < ironN; i++) placeVein(T_IRON, Math.floor(rng() * LN), Math.floor(rng() * MAP_H), 4 + Math.floor(rng() * 4));
+  for (let i = 0; i < stoneN; i++) placeVein(T_STONE, Math.floor(rng() * LN), Math.floor(rng() * MAP_H), 4 + Math.floor(rng() * 4));
+  for (let i = 0; i < crystalN; i++) {
     let x, y, guard = 0;
     do { x = Math.floor(rng() * LN); y = Math.floor(rng() * MAP_H); }
     while (opts.hasBase && Math.hypot(x - bx, y - by) < 12 && ++guard < 50);
     placeVein(T_CRYSTAL, x, y, 3 + Math.floor(rng() * 3));
   }
-  if (opts.copper) {
-    for (let i = 0; i < 8; i++) placeVein(T_COPPER, Math.floor(rng() * LN), Math.floor(rng() * MAP_H), 4 + Math.floor(rng() * 4));
-  }
+  for (let i = 0; i < copperN; i++) placeVein(T_COPPER, Math.floor(rng() * LN), Math.floor(rng() * MAP_H), 4 + Math.floor(rng() * 4));
 
   if (opts.hasBase) {
     for (let dy = -3; dy <= 3; dy++) for (let dx = -3; dx <= 3; dx++) {
@@ -448,14 +449,21 @@ function pasteArea(local, x0) {
 }
 
 // 境界壁＋ゲート開口部を彫る（tiles/oreは任意の配列に対して実行できる：移行処理でも再利用）
+// 境界は「x0から始まりBORDER_Wの厚みを持つ壁」の並び。各境界の中央(gateX)がゲート開口部になる。
+const BORDERS = [
+  { x0: AREA_W, gateX: GATE_X },
+  { x0: AREA_W * 2 + BORDER_W, gateX: GATE2_X },
+];
 function carveBorderAndGate(tiles, ore) {
-  for (let y = 0; y < MAP_H; y++) for (let x = AREA_W; x < AREA_W + BORDER_W; x++) {
-    tiles[idx(x, y)] = T_ROCK; ore[idx(x, y)] = 0;
-  }
-  // ゲートの行は境界の壁の厚み全体＋両側の接続タイルを地形として通行可能にする。
-  // 未修理の間は、ゲート「建物」自体（walkable()）が通行を塞ぐ。
-  for (let x = AREA_W - 1; x <= AREA_W + BORDER_W; x++) {
-    tiles[idx(x, GATE_Y)] = T_PLAIN; ore[idx(x, GATE_Y)] = 0;
+  for (const bd of BORDERS) {
+    for (let y = 0; y < MAP_H; y++) for (let x = bd.x0; x < bd.x0 + BORDER_W; x++) {
+      tiles[idx(x, y)] = T_ROCK; ore[idx(x, y)] = 0;
+    }
+    // ゲートの行は境界の壁の厚み全体＋両側の接続タイルを地形として通行可能にする。
+    // 未修理の間は、ゲート「建物」自体（walkable()）が通行を塞ぐ。
+    for (let x = bd.x0 - 1; x <= bd.x0 + BORDER_W; x++) {
+      tiles[idx(x, GATE_Y)] = T_PLAIN; ore[idx(x, GATE_Y)] = 0;
+    }
   }
 }
 
@@ -468,11 +476,15 @@ function genMap(seed) {
   pasteArea(area1, 0);
   const area2 = genAreaLocal(rng, { hasBase: false, copper: true, rockClusters: 24 });
   pasteArea(area2, AREA_W + BORDER_W);
+  // 第3エリア：既存資源(銅・結晶中心)の高密度配置。新資源タイプは追加しない
+  const area3 = genAreaLocal(rng, { hasBase: false, copper: true, copperVeins: 14, crystalVeins: 12, ironVeins: 3, stoneVeins: 3, rockClusters: 18 });
+  pasteArea(area3, AREA_W * 2 + BORDER_W * 2);
   carveBorderAndGate(G.tiles, G.ore);
 
   G.buildings = {};
   G.buildings[bkey(G.base.x, G.base.y)] = { type: 'base', x: G.base.x, y: G.base.y };
   G.buildings[bkey(GATE_X, GATE_Y)] = { type: 'gate', x: GATE_X, y: GATE_Y, repaired: false };
+  G.buildings[bkey(GATE2_X, GATE_Y)] = { type: 'gate', x: GATE2_X, y: GATE_Y, repaired: false, requiresTech: 'gate2Blueprint' };
   G.player.x = G.base.x; G.player.y = G.base.y + 1;
   G.player.batteryUpgraded = false;
   G.beaconCleared = false;
@@ -1904,10 +1916,17 @@ function openBuilding(b, keep) {
       <div style="margin-top:10px"><button class="btn primary" id="pb-rotate" style="width:100%;padding:12px;">🔄 90度回転</button></div>` + removeBtn;
   }
   else if (b.type === 'gate') {
+    const techOk = !b.requiresTech || !!G.research[b.requiresTech];
+    const tech = b.requiresTech ? researchById(b.requiresTech) : null;
+    const cost = b.requiresTech ? CONFIG.COSTS.gate2 : CONFIG.COSTS.gate;
+    let body;
+    if (b.repaired) body = '修理済み。通行できる。';
+    else if (!techOk) body = `研究所で「${tech ? tech.name : '専用の研究'}」を完了すると修理できるようになる。`;
+    else body = 'この先への通路をふさいでいる。修理すれば通れるようになる。';
     html = `<h2>🚧 壊れたゲート<button class="close-x">✕</button></h2>
-      <div class="row"><div class="grow">${b.repaired ? '修理済み。第2エリアへ通行できる。' : '第2エリアへの通路をふさいでいる。修理すれば通れるようになる。'}</div></div>
-      ${b.repaired ? '' : `<div class="row"><div class="grow">修理コスト：${costText(CONFIG.COSTS.gate)}</div></div>
-      <div style="margin-top:12px"><button class="btn primary" id="pb-repair" style="width:100%;padding:14px;font-size:15px;" ${canAfford(CONFIG.COSTS.gate) ? '' : 'disabled'}>🔧 修理する</button></div>`}`;
+      <div class="row"><div class="grow">${body}</div></div>
+      ${(!b.repaired && techOk) ? `<div class="row"><div class="grow">修理コスト：${costText(cost)}</div></div>
+      <div style="margin-top:12px"><button class="btn primary" id="pb-repair" style="width:100%;padding:14px;font-size:15px;" ${canAfford(cost) ? '' : 'disabled'}>🔧 修理する</button></div>` : ''}`;
   }
   else if (b.type === 'beacon') {
     html = `<h2>🛰️ 誘導ビーコン<button class="close-x">✕</button></h2>
@@ -1996,11 +2015,13 @@ function openBuilding(b, keep) {
     openBuilding(b);
   });
   panelEl.querySelector('#pb-repair')?.addEventListener('click', () => {
-    if (!canAfford(CONFIG.COSTS.gate)) return;
-    payCost(CONFIG.COSTS.gate);
-    G.flags['q_gate'] = true; // ゲート自体は撤去するため、修理済みの記録は先にフラグへ残す
+    if (b.requiresTech && !G.research[b.requiresTech]) return;
+    const cost = b.requiresTech ? CONFIG.COSTS.gate2 : CONFIG.COSTS.gate;
+    if (!canAfford(cost)) return;
+    payCost(cost);
+    G.flags[b.requiresTech ? 'q_gate2' : 'q_gate'] = true; // ゲート自体は撤去するため、修理済みの記録は先にフラグへ残す
     delete G.buildings[bkey(b.x, b.y)]; // 修理後はタイルを完全な平地に戻す（ベルト設置・通行が可能に）
-    toast('ゲートを修理した！第2エリアへ進める（ベルトも通せるようになった）');
+    toast('ゲートを修理した！奥へ進める（ベルトも通せるようになった）');
     closePanel(); markDirty(); saveGame();
   });
   panelEl.querySelector('#pb-beacon-activate')?.addEventListener('click', () => activateBeacon(b));
@@ -2175,10 +2196,9 @@ function applySave(d) {
   const base = d.buildings.find(b => b.type === 'base');
   if (base) { G.base.x = base.x; G.base.y = base.y; }
   // 旧仕様（修理済みゲートが設備として残ったまま）からの互換：タイルを平地として開放する
-  const oldGate = buildingOfType('gate');
-  if (oldGate && oldGate.repaired) {
+  for (const oldGate of Object.values(G.buildings).filter(b => b.type === 'gate' && b.repaired)) {
     delete G.buildings[bkey(oldGate.x, oldGate.y)];
-    (d.flags || (d.flags = {}))['q_gate'] = true;
+    (d.flags || (d.flags = {}))[oldGate.requiresTech ? 'q_gate2' : 'q_gate'] = true;
   }
   G.player.x = d.player.x; G.player.y = d.player.y;
   G.player.battery = d.player.battery;
@@ -2197,13 +2217,17 @@ function applySave(d) {
 }
 
 // Phase1（v1・48×48単一エリア）のセーブを新マップ形式（v2・第1＋第2エリア）へ移行
+// 注意：v2形式の幅は現在のグローバルW（3エリア分）とは異なるため、
+// 必ずこの関数専用のローカル幅・idxを使うこと（グローバルなidx()/Wを使うと座標がずれる）
 function migrateV1(d) {
   const OLD_N = 48;
-  const newTiles = new Uint8Array(W * H).fill(T_ROCK);
-  const newOre = new Uint16Array(W * H);
-  const newExplored = new Uint8Array(W * H);
+  const V2_W = AREA_W * 2 + BORDER_W; // v2形式（第1＋境界＋第2エリア）の幅
+  const v2idx = (x, y) => y * V2_W + x;
+  const newTiles = new Uint8Array(V2_W * MAP_H).fill(T_ROCK);
+  const newOre = new Uint16Array(V2_W * MAP_H);
+  const newExplored = new Uint8Array(V2_W * MAP_H);
   for (let y = 0; y < OLD_N; y++) for (let x = 0; x < OLD_N; x++) {
-    const oi = y * OLD_N + x, ni = idx(x, y);   // 第1エリアはx0=0のまま座標が一致する
+    const oi = y * OLD_N + x, ni = v2idx(x, y);   // 第1エリアはx0=0のまま座標が一致する
     newTiles[ni] = +d.tiles[oi];
     newOre[ni] = d.ore[oi];
     newExplored[ni] = +d.explored[oi];
@@ -2211,11 +2235,17 @@ function migrateV1(d) {
   const rng = mulberry32((d.seed || CONFIG.SEED) + 777);
   const area2 = genAreaLocal(rng, { hasBase: false, copper: true, rockClusters: 24 });
   for (let y = 0; y < MAP_H; y++) for (let x = 0; x < AREA_W; x++) {
-    const ni = idx(AREA_W + BORDER_W + x, y), li = y * AREA_W + x;
+    const ni = v2idx(AREA_W + BORDER_W + x, y), li = y * AREA_W + x;
     newTiles[ni] = area2.tiles[li];
     newOre[ni] = area2.ore[li];
   }
-  carveBorderAndGate(newTiles, newOre);
+  // v2形式の境界を彫る（ゲート1つ分のみ。現行のcarveBorderAndGate()はv3の2ゲート分＆v3幅前提のため使えない）
+  for (let y = 0; y < MAP_H; y++) for (let x = AREA_W; x < AREA_W + BORDER_W; x++) {
+    newTiles[v2idx(x, y)] = T_ROCK; newOre[v2idx(x, y)] = 0;
+  }
+  for (let x = AREA_W - 1; x <= AREA_W + BORDER_W; x++) {
+    newTiles[v2idx(x, GATE_Y)] = T_PLAIN; newOre[v2idx(x, GATE_Y)] = 0;
+  }
 
   return {
     v: 2,
@@ -2233,9 +2263,49 @@ function migrateV1(d) {
   };
 }
 
+// Phase2（v2・第1＋第2エリア）のセーブを新マップ形式（v3・第3エリア＋ゲート図面）へ移行
+function migrateV2(d) {
+  const OLD_W = AREA_W * 2 + BORDER_W; // v2時点のマップ幅（第1＋境界＋第2エリア）
+  const OLD_H = MAP_H;
+  const newTiles = new Uint8Array(W * H).fill(T_ROCK);
+  const newOre = new Uint16Array(W * H);
+  const newExplored = new Uint8Array(W * H);
+  for (let y = 0; y < OLD_H; y++) for (let x = 0; x < OLD_W; x++) {
+    const oi = y * OLD_W + x, ni = idx(x, y);   // 第1・第2エリアの座標はそのまま（右側に追加するだけ）
+    newTiles[ni] = +d.tiles[oi];
+    newOre[ni] = d.ore[oi];
+    newExplored[ni] = +d.explored[oi];
+  }
+  const rng = mulberry32((d.seed || CONFIG.SEED) + 1234);
+  const area3 = genAreaLocal(rng, { hasBase: false, copper: true, copperVeins: 14, crystalVeins: 12, ironVeins: 3, stoneVeins: 3, rockClusters: 18 });
+  for (let y = 0; y < MAP_H; y++) for (let x = 0; x < AREA_W; x++) {
+    const ni = idx(AREA_W * 2 + BORDER_W * 2 + x, y), li = y * AREA_W + x;
+    newTiles[ni] = area3.tiles[li];
+    newOre[ni] = area3.ore[li];
+  }
+  carveBorderAndGate(newTiles, newOre);
+
+  return {
+    v: 3,
+    seed: d.seed,
+    tiles: Array.from(newTiles).join(''),
+    ore: Array.from(newOre),
+    explored: Array.from(newExplored).join(''),
+    buildings: [...d.buildings, { type: 'gate', x: GATE2_X, y: GATE_Y, repaired: false, requiresTech: 'gate2Blueprint' }],
+    player: d.player,
+    flags: d.flags || {},
+    research: d.research || {},
+    cleared: !!d.cleared,
+    beaconCleared: !!d.beaconCleared,
+    time: d.time || 0,
+    lastSeen: d.lastSeen || Date.now(),
+  };
+}
+
 // v(古い) -> 移行関数 のチェーン。新しい互換性破壊的変更を追加する時はここに1エントリ足すだけでよい
 const MIGRATIONS = {
   1: migrateV1,   // v1（Phase1・単一エリア）→ v2（第1＋第2エリア＋ゲート）
+  2: migrateV2,   // v2（第1＋第2エリア）→ v3（第3エリア＋ゲート図面研究）
 };
 function loadGame() {
   try {
