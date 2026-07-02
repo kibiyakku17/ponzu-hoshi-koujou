@@ -160,6 +160,8 @@ const CONFIG = {
   MINER_INTERVAL: 4,     // 採掘機の産出間隔（秒/個）
   MINER_BUFFER: 12,      // 採掘機の内部バッファ上限
   MINER_RADIUS: 1,       // 採掘機の採掘範囲（1=中心3×3）
+  ARM_INTERVAL: 2,       // アームの搬送間隔（秒/個）
+  BELT_TIME: 1,          // ベルトが1タイル分アイテムを運ぶのにかかる時間（秒）
   SMELT_TIME: 2.5,       // 精錬1個あたりの時間（秒）
   FURNACE_IN_CAP: 20,    // 精錬炉の投入スロット上限（種類ごと）
   FURNACE_OUT_CAP: 20,   // 精錬炉の完成品スロット上限（種類ごと）
@@ -173,6 +175,8 @@ const CONFIG = {
     workbench:{ stone: 4, ironPlate: 2 },
     miner:    { ironPlate: 4, stoneBlock: 2 },
     antenna:  { part: 5, stoneBlock: 5, crystal: 3 },
+    arm:      { ironPlate: 1, part: 1 },
+    belt:     { ironPlate: 1 },
   },
   // クラフトレシピ（作業台）
   RECIPES: [
@@ -214,6 +218,8 @@ const BUILDINGS = {
   chest:     { name: '保管箱', icon: '📦', desc: 'アイテムをしまえる箱。採掘機の隣に置くと自動で溜まる。' },
   workbench: { name: '作業台', icon: '🔧', desc: '手動クラフト用。鉄板から部品を作れる。' },
   antenna:   { name: '通信アンテナ', icon: '📡', desc: '拠点の近くに設置して起動すれば救難信号を送れる！' },
+  arm:       { name: 'アーム', icon: '🦾', desc: '後ろの設備/ベルトから受け取り、前の設備/ベルトへ渡す（数秒に1個）。設置後タップで90度回転。' },
+  belt:      { name: 'ベルト', icon: '➡️', desc: '乗ったアイテムを進行方向へ運ぶ。設備への出し入れはアーム経由。設置後タップで90度回転。' },
 };
 
 const SAVE_KEY = 'ponzu_hoshi_koujou_v1';
@@ -475,6 +481,8 @@ function tryPlace(type, x, y) {
   if (type === 'furnace') { b.input = {}; b.output = {}; b.job = null; b.progress = 0; }
   if (type === 'chest') { b.inv = {}; }
   if (type === 'antenna') { b.active = false; }
+  if (type === 'arm') { b.dir = 0; b.timer = 0; }
+  if (type === 'belt') { b.dir = 0; b.item = null; b.progress = 0; }
   G.buildings[bkey(x, y)] = b;
   buildMode = null;
   updateBuildModeUI();
@@ -488,6 +496,7 @@ function removeBuilding(b) {
   for (const src of [b.buffer, b.input, b.output, b.inv]) {
     if (src) for (const [k, v] of Object.entries(src)) invAdd(G.player.inv, k, v);
   }
+  if (b.item) invAdd(G.player.inv, b.item, 1);
   delete G.buildings[bkey(b.x, b.y)];
   closePanel();
   toast(BUILDINGS[b.type].name + 'を撤去した（材料は返却）');
@@ -1052,8 +1061,45 @@ function drawBuilding(b, sx, sy, s) {
       ctx.arc(sx + s / 2, sy - s * 0.8, u * 2 + r * s * 1.2, 0, 7);
       ctx.stroke();
     }
+  } else if (b.type === 'belt') {
+    const ang = b.dir * Math.PI / 2;
+    ctx.save();
+    ctx.translate(sx + s / 2, sy + s / 2);
+    ctx.rotate(ang);
+    ctx.fillStyle = '#20263f';
+    ctx.fillRect(-s * 0.45, -s * 0.45, s * 0.9, s * 0.9);
+    ctx.fillStyle = '#39415f';
+    for (let i = -1; i <= 1; i++) ctx.fillRect(-u * 0.5, i * u * 1.8 - u * 0.4, u, u * 0.8);
+    ctx.fillStyle = '#5ee6c8';
+    ctx.beginPath();
+    ctx.moveTo(u * 2, 0); ctx.lineTo(u * 0.8, -u * 0.9); ctx.lineTo(u * 0.8, u * 0.9);
+    ctx.closePath(); ctx.fill();
+    ctx.restore();
+    if (b.item) {
+      const dv = DIR_VEC[b.dir];
+      const cx = sx + s / 2 + dv.x * (b.progress - 0.5) * s * 0.7;
+      const cy = sy + s / 2 + dv.y * (b.progress - 0.5) * s * 0.7;
+      ctx.fillStyle = ITEMS[b.item].color;
+      ctx.fillRect(cx - u * 0.9, cy - u * 0.9, u * 1.8, u * 1.8);
+    }
+  } else if (b.type === 'arm') {
+    const ang = b.dir * Math.PI / 2;
+    const pulse = a_pulse(b);
+    ctx.save();
+    ctx.translate(sx + s / 2, sy + s / 2);
+    ctx.rotate(ang);
+    ctx.fillStyle = '#3a4568';
+    ctx.fillRect(-u * 2.2, -u * 2.2, u * 4.4, u * 4.4);
+    ctx.fillStyle = pulse ? '#5ee6c8' : '#7fb2ff';
+    ctx.fillRect(-u * 0.6, -u * 0.6, u * 3.4, u * 1.2);
+    ctx.fillStyle = '#e8b34b';
+    ctx.beginPath(); ctx.arc(u * 2.8, 0, u * 0.9, 0, 7); ctx.fill();
+    ctx.fillStyle = '#1c2542';
+    ctx.beginPath(); ctx.arc(0, 0, u * 0.9, 0, 7); ctx.fill();
+    ctx.restore();
   }
 }
+function a_pulse(a) { return (a.timer || 0) / CONFIG.ARM_INTERVAL > 0.75; }
 
 // =====================================================================
 // 入力（タップ／ドラッグ／ズーム）
@@ -1144,7 +1190,8 @@ function refreshOpenPanel() {
 
 // --- 建設メニュー ---
 function openBuildMenu(keep) {
-  const rows = ['furnace', 'chest', 'workbench', 'miner', 'antenna'].map(t => {
+  const list = ['furnace', 'chest', 'workbench', 'miner', 'belt', 'arm', 'antenna'];
+  const rows = list.map(t => {
     const ok = canAfford(CONFIG.COSTS[t]);
     return `<div class="row">
       <div class="grow"><b>${BUILDINGS[t].icon} ${BUILDINGS[t].name}</b><br>
@@ -1235,6 +1282,16 @@ function openBuilding(b, keep) {
       ${b.active ? '' : '<div style="margin-top:12px"><button class="btn primary" id="pb-activate" style="width:100%;padding:14px;font-size:15px;">🚀 アンテナを起動する</button></div>'}` +
       (b.active ? '' : removeBtn);
   }
+  else if (b.type === 'arm') {
+    html = `<h2>🦾 アーム（向き：${DIR_VEC[b.dir].n}）<button class="close-x">✕</button></h2>
+      <div class="row"><div class="grow">後ろ側の設備/ベルトから1個取り、前（${DIR_VEC[b.dir].n}側）の設備/ベルトへ渡す。数秒に1個。</div></div>
+      <div style="margin-top:10px"><button class="btn primary" id="pb-rotate" style="width:100%;padding:12px;">🔄 90度回転</button></div>` + removeBtn;
+  }
+  else if (b.type === 'belt') {
+    html = `<h2>➡️ ベルト（向き：${DIR_VEC[b.dir].n}）<button class="close-x">✕</button></h2>
+      <div class="row"><div class="grow">乗ったアイテムを${DIR_VEC[b.dir].n}方向へ運ぶ。${b.item ? '現在：' + ITEMS[b.item].name : '空き'}</div></div>
+      <div style="margin-top:10px"><button class="btn primary" id="pb-rotate" style="width:100%;padding:12px;">🔄 90度回転</button></div>` + removeBtn;
+  }
   showPanel(html);
   openedPanel = { kind: 'building', b };
 
@@ -1279,6 +1336,11 @@ function openBuilding(b, keep) {
   panelEl.querySelectorAll('[data-craft]').forEach(btn => btn.addEventListener('click', () => craft(+btn.dataset.craft, 1)));
   panelEl.querySelectorAll('[data-craft5]').forEach(btn => btn.addEventListener('click', () => craft(+btn.dataset.craft5, 5)));
   panelEl.querySelector('#pb-activate')?.addEventListener('click', () => activateAntenna(b));
+  panelEl.querySelector('#pb-rotate')?.addEventListener('click', () => {
+    b.dir = (b.dir + 1) % 4;
+    markDirty(); saveGame();
+    openBuilding(b);
+  });
 }
 
 // --- 設定 ---
