@@ -215,6 +215,7 @@ const CONFIG = {
     fastBelt: { ironPlate: 2, copperWire: 1 },
     minerMk2: { ironPlate: 6, stoneBlock: 3, circuit: 1 },
     fastArm:  { ironPlate: 2, part: 2, circuit: 1 },
+    filterArm:{ ironPlate: 2, part: 2, circuit: 2 },
     gate2:    { part: 20, stoneBlock: 20, circuit: 10 },
   },
   // クラフトレシピ（作業台／組立機で共通）
@@ -231,8 +232,10 @@ const CONFIG = {
     { id: 'fastBelt',       tier: 1, name: '高速ベルト',         desc: '搬送速度が2倍の新型ベルト。', cost: { researchPack1: 40 } },
     { id: 'minerMk2',       tier: 1, name: '採掘機Mk2',          desc: '採掘範囲5×5、速度1.5倍の上位採掘機。', cost: { researchPack1: 50 } },
     { id: 'fastArm',        tier: 2, name: '高速アーム',         desc: '動作速度が2倍のアーム。', cost: { researchPack1: 30, researchPack2: 20 } },
+    { id: 'filterArm',      tier: 2, name: 'フィルタアーム',     desc: '指定した1種類のアイテムだけを掴むアーム。混載ベルトの仕分けに使う。', cost: { researchPack1: 30, researchPack2: 20 } },
     { id: 'exploreUpgrade', tier: 2, name: '探査強化',           desc: '最大バッテリー+50%（既存の拡張と重複可）、移動速度+30%。', cost: { researchPack1: 40, researchPack2: 30 } },
     { id: 'sensorUpgrade',  tier: 2, name: '広域センサー',       desc: '霧が晴れる視界範囲を拡大する。', cost: { researchPack2: 20 } },
+    { id: 'gateWidening',   tier: 2, name: 'ゲート拡張工事',     desc: '修理済みゲートの幅を3マスに拡幅し、ベルトを複数本並べて通せるようにする。', cost: { researchPack1: 40, researchPack2: 40 } },
     { id: 'gate2Blueprint', tier: 2, name: '第3エリアのゲート図面', desc: '第3エリアへのゲートが修理できるようになる。', cost: { researchPack1: 50, researchPack2: 50 } },
   ],
 };
@@ -284,6 +287,7 @@ const BUILDINGS = {
   fastBelt:  { name: '高速ベルト', icon: '⏩', desc: '通常のベルトの2倍の速度で運ぶ。設置後タップで90度回転。ドラッグで連続設置。' },
   minerMk2:  { name: '採掘機Mk2', icon: '⛏️', desc: '採掘範囲5×5、速度1.5倍の上位採掘機。' },
   fastArm:   { name: '高速アーム', icon: '🦾', desc: '通常のアームの2倍の速度で動く。設置後タップで90度回転。' },
+  filterArm: { name: 'フィルタアーム', icon: '🎯', desc: '指定した1種類のアイテムだけを掴む。それ以外は素通りさせる。設置後タップで対象アイテムと向きを設定。' },
 };
 
 const SAVE_KEY = 'ponzu_hoshi_koujou_v1';
@@ -466,6 +470,19 @@ function carveBorderAndGate(tiles, ore) {
     }
   }
 }
+// このborderのゲートが既に修理済み（＝ゲート建物が撤去済み）かどうか
+function isGateRepaired(border) {
+  return !Object.values(G.buildings).some(b => b.type === 'gate' && b.x === border.gateX && b.y === GATE_Y);
+}
+// ゲート拡張工事：対象の境界を上下1マスずつ追加で開通させ、幅3マスの通路にする（既存のG.tiles/G.oreを直接書き換える）
+function applyGateWideningFor(border) {
+  for (const y of [GATE_Y - 1, GATE_Y + 1]) {
+    for (let x = border.x0 - 1; x <= border.x0 + BORDER_W; x++) {
+      if (inMap(x, y)) { G.tiles[idx(x, y)] = T_PLAIN; G.ore[idx(x, y)] = 0; }
+    }
+  }
+  markDirty();
+}
 
 function genMap(seed) {
   const rng = mulberry32(seed);
@@ -646,6 +663,7 @@ function tryPlace(type, x, y) {
   if (type === 'chest' || type === 'chestIn') { b.inv = {}; }
   if (type === 'antenna') { b.active = false; }
   if (type === 'arm' || type === 'fastArm') { b.dir = 0; b.timer = 0; }
+  if (type === 'filterArm') { b.dir = 0; b.timer = 0; b.filterItem = null; }
   if (type === 'belt' || type === 'fastBelt') { b.dir = 0; b.item = null; b.progress = 0; }
   if (type === 'splitter') { b.dir = 0; b.item = null; b.progress = 0; b.toggle = 0; }
   if (type === 'beacon') { b.active = false; }
@@ -738,7 +756,7 @@ function tickMachines(dt) {
     else if (b.type === 'furnace') tickFurnace(b, dt);
     else if (b.type === 'assembler') tickAssembler(b, dt);
     else if (b.type === 'lab') tickLab(b, dt);
-    else if (b.type === 'arm' || b.type === 'fastArm') tickArm(b, dt);
+    else if (b.type === 'arm' || b.type === 'fastArm' || b.type === 'filterArm') tickArm(b, dt);
     else if (b.type === 'belt' || b.type === 'fastBelt') tickBelt(b, dt);
     else if (b.type === 'splitter') tickSplitter(b, dt);
   }
@@ -771,6 +789,10 @@ function tickLab(b, dt) {
       if (allDone) {
         G.research[tech.id] = true;
         b.currentTech = null; b.consumed = {};
+        // ゲート拡張工事：既に修理済みのゲートがあれば即座に拡幅する（未修理分は修理時に適用）
+        if (tech.id === 'gateWidening') {
+          for (const bd of BORDERS) if (isGateRepaired(bd)) applyGateWideningFor(bd);
+        }
         toast(`🔬「${tech.name}」の研究が完了した！`);
         saveGame();
       }
@@ -821,6 +843,8 @@ function tickArm(a, dt) {
   if (!src || !dst) return;
   const item = bldPeekOutput(src);
   if (!item) return;
+  // フィルタアームは指定したアイテム以外は素通りさせる（対象未設定なら何も掴まない）
+  if (a.type === 'filterArm' && item !== a.filterItem) return;
   if (!bldCanInsert(dst, item)) return;
   bldRemoveOne(src, item);
   bldInsert(dst, item);
@@ -1530,7 +1554,7 @@ function drawBuilding(b, sx, sy, s) {
       ctx.fillStyle = ITEMS[b.item].color;
       ctx.fillRect(sx + s / 2 - u * 0.9, sy + s / 2 - u * 0.9, u * 1.8, u * 1.8);
     }
-  } else if (b.type === 'arm' || b.type === 'fastArm') {
+  } else if (b.type === 'arm' || b.type === 'fastArm' || b.type === 'filterArm') {
     const ang = b.dir * Math.PI / 2;
     const pulse = a_pulse(b);
     ctx.save();
@@ -1538,13 +1562,18 @@ function drawBuilding(b, sx, sy, s) {
     ctx.rotate(ang);
     ctx.fillStyle = '#3a4568';
     ctx.fillRect(-u * 2.2, -u * 2.2, u * 4.4, u * 4.4);
-    ctx.fillStyle = pulse ? '#5ee6c8' : (b.type === 'fastArm' ? '#ffd94b' : '#7fb2ff');
+    ctx.fillStyle = pulse ? '#5ee6c8' : (b.type === 'fastArm' ? '#ffd94b' : (b.type === 'filterArm' ? '#f472b6' : '#7fb2ff'));
     ctx.fillRect(-u * 0.6, -u * 0.6, u * 3.4, u * 1.2);
     ctx.fillStyle = '#e8b34b';
     ctx.beginPath(); ctx.arc(u * 2.8, 0, u * 0.9, 0, 7); ctx.fill();
     ctx.fillStyle = '#1c2542';
     ctx.beginPath(); ctx.arc(0, 0, u * 0.9, 0, 7); ctx.fill();
     ctx.restore();
+    if (b.type === 'filterArm' && !b.filterItem) {
+      ctx.fillStyle = '#ff6b81';
+      ctx.font = `bold ${Math.round(u * 1.6)}px sans-serif`; ctx.textAlign = 'center';
+      ctx.fillText('？', sx + s / 2, sy + u * 2);
+    }
   }
   if (['chest', 'chestIn', 'miner', 'minerMk2', 'furnace', 'assembler', 'lab'].includes(b.type)) {
     drawInvOverlay(b, sx, sy, s);
@@ -1743,6 +1772,7 @@ function openBuildMenu(keep) {
   if (G.research.fastBelt) list.push('fastBelt');
   if (G.research.minerMk2) list.push('minerMk2');
   if (G.research.fastArm) list.push('fastArm');
+  if (G.research.filterArm) list.push('filterArm');
   if (G.cleared) list.push('beacon');
   const rows = list.map(t => {
     const ok = canAfford(CONFIG.COSTS[t]);
@@ -1904,6 +1934,17 @@ function openBuilding(b, keep) {
       <div class="row"><div class="grow">後ろ側の設備/ベルトから1個取り、前（${DIR_VEC[b.dir].n}側）の設備/ベルトへ渡す。</div></div>
       <div style="margin-top:10px"><button class="btn primary" id="pb-rotate" style="width:100%;padding:12px;">🔄 90度回転</button></div>` + removeBtn;
   }
+  else if (b.type === 'filterArm') {
+    const itemOptions = Object.keys(ITEMS).map(k => `<div class="row">
+        <span class="dot" style="background:${ITEMS[k].color}"></span>
+        <div class="grow">${ITEMS[k].name}</div>
+        <button class="btn ${b.filterItem === k ? 'primary' : ''}" data-filter-item="${k}">${b.filterItem === k ? '選択中' : '選ぶ'}</button>
+      </div>`).join('');
+    html = `<h2>🎯 フィルタアーム（向き：${DIR_VEC[b.dir].n}）<button class="close-x">✕</button></h2>
+      <div class="row"><div class="grow">後ろ側から「${b.filterItem ? ITEMS[b.filterItem].name : '未設定'}」だけを取り、前（${DIR_VEC[b.dir].n}側）へ渡す。それ以外は素通りさせる。</div></div>
+      <div style="margin-top:10px"><button class="btn primary" id="pb-rotate" style="width:100%;padding:12px;">🔄 90度回転</button></div>
+      <h3>対象アイテム</h3>${itemOptions}` + removeBtn;
+  }
   else if (b.type === 'belt' || b.type === 'fastBelt') {
     const title = b.type === 'fastBelt' ? '⏩ 高速ベルト' : '➡️ ベルト';
     html = `<h2>${title}（向き：${DIR_VEC[b.dir].n}）<button class="close-x">✕</button></h2>
@@ -2004,6 +2045,11 @@ function openBuilding(b, keep) {
     markDirty(); saveGame();
     openBuilding(b);
   });
+  panelEl.querySelectorAll('[data-filter-item]').forEach(btn => btn.addEventListener('click', () => {
+    b.filterItem = btn.dataset.filterItem;
+    markDirty(); saveGame();
+    openBuilding(b);
+  }));
   panelEl.querySelector('#pb-battery-upgrade')?.addEventListener('click', () => {
     if (G.player.batteryUpgraded || !canAfford(CONFIG.BATTERY_UPGRADE_COST)) return;
     payCost(CONFIG.BATTERY_UPGRADE_COST);
@@ -2020,7 +2066,9 @@ function openBuilding(b, keep) {
     if (!canAfford(cost)) return;
     payCost(cost);
     G.flags[b.requiresTech ? 'q_gate2' : 'q_gate'] = true; // ゲート自体は撤去するため、修理済みの記録は先にフラグへ残す
+    const border = BORDERS.find(bd => bd.gateX === b.x);
     delete G.buildings[bkey(b.x, b.y)]; // 修理後はタイルを完全な平地に戻す（ベルト設置・通行が可能に）
+    if (G.research.gateWidening && border) applyGateWideningFor(border); // 研究済みなら即座に3マス幅で開通
     toast('ゲートを修理した！奥へ進める（ベルトも通せるようになった）');
     closePanel(); markDirty(); saveGame();
   });
