@@ -870,7 +870,7 @@ const QUESTS = [
 ];
 // アンテナ起動後の継続目標
 const QUESTS_POST = [
-  { id: 'gate',    check: () => { const g = buildingOfType('gate'); return !!(g && g.repaired); },
+  { id: 'gate',    check: () => !!G.flags['q_gate'],
     text: '東側の<b>壊れたゲート</b>を修理して第2エリアへ行こう（部品×10＋石ブロック×10）' },
   { id: 'copper',  check: () => everHad('copperWire'), text: '第2エリアで<b>銅鉱石</b>を集めて精錬炉で<b>銅線</b>を作ろう' },
   { id: 'circuit', check: () => everHad('circuit'), text: '作業台で<b>回路</b>を作ろう（銅線×2＋鉄板×1）' },
@@ -1693,8 +1693,9 @@ function openBuilding(b, keep) {
   panelEl.querySelector('#pb-repair')?.addEventListener('click', () => {
     if (!canAfford(CONFIG.COSTS.gate)) return;
     payCost(CONFIG.COSTS.gate);
-    b.repaired = true;
-    toast('ゲートを修理した！第2エリアへ進める');
+    G.flags['q_gate'] = true; // ゲート自体は撤去するため、修理済みの記録は先にフラグへ残す
+    delete G.buildings[bkey(b.x, b.y)]; // 修理後はタイルを完全な平地に戻す（ベルト設置・通行が可能に）
+    toast('ゲートを修理した！第2エリアへ進める（ベルトも通せるようになった）');
     closePanel(); markDirty(); saveGame();
   });
   panelEl.querySelector('#pb-beacon-activate')?.addEventListener('click', () => activateBeacon(b));
@@ -1867,6 +1868,12 @@ function applySave(d) {
   for (const b of d.buildings) G.buildings[bkey(b.x, b.y)] = b;
   const base = d.buildings.find(b => b.type === 'base');
   if (base) { G.base.x = base.x; G.base.y = base.y; }
+  // 旧仕様（修理済みゲートが設備として残ったまま）からの互換：タイルを平地として開放する
+  const oldGate = buildingOfType('gate');
+  if (oldGate && oldGate.repaired) {
+    delete G.buildings[bkey(oldGate.x, oldGate.y)];
+    (d.flags || (d.flags = {}))['q_gate'] = true;
+  }
   G.player.x = d.player.x; G.player.y = d.player.y;
   G.player.battery = d.player.battery;
   G.player.inv = d.player.inv || {};
