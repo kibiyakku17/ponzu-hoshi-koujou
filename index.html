@@ -122,6 +122,7 @@
   <div id="inv-bar"></div>
   <div id="bottom-btns">
     <button class="big-btn" id="btn-build">🔨 建設</button>
+    <button class="big-btn" id="btn-erase">🗑 撤去</button>
     <button class="big-btn" id="cancel-build">✕ 設置キャンセル</button>
   </div>
 </div>
@@ -475,6 +476,14 @@ function onTapTile(x, y) {
   if (!inMap(x, y) || !G.explored[idx(x, y)]) { return; }
   const p = G.player;
 
+  // 撤去モード
+  if (eraseMode) {
+    const b = buildingAt(x, y);
+    if (b && b.type !== 'base' && b.type !== 'gate') removeBuilding(b);
+    else toast('ここには撤去できる設備がない', 'warn');
+    return;
+  }
+
   // 設置モード
   if (buildMode) { tryPlace(buildMode, x, y); return; }
 
@@ -513,6 +522,7 @@ function onTapTile(x, y) {
 // 設備の設置・撤去
 // =====================================================================
 let buildMode = null;
+let eraseMode = false;
 
 function canAfford(cost) {
   return Object.entries(cost).every(([k, v]) => invCount(G.player.inv, k) >= v);
@@ -567,6 +577,7 @@ function tryPlace(type, x, y) {
 }
 
 function removeBuilding(b) {
+  if (b.type === 'base' || b.type === 'gate') return; // 拠点・ゲートは撤去不可
   // コスト返却＋中身をプレイヤーへ
   payCostRefund(CONFIG.COSTS[b.type]);
   for (const src of [b.buffer, b.input, b.output, b.inv]) {
@@ -988,6 +999,27 @@ function render() {
     }
   }
 
+  // ベルト連続設置／連続撤去のドラッグプレビュー
+  if (dragPath) {
+    const rgb = dragPath.mode === 'belt' ? '94,230,200' : '255,107,129';
+    for (const t of dragPath.tiles) {
+      const [tsx, tsy] = tileToScreen(t.x - 0.5, t.y - 0.5);
+      ctx.fillStyle = `rgba(${rgb},.35)`;
+      ctx.fillRect(tsx, tsy, s, s);
+      if (dragPath.mode === 'belt') {
+        ctx.save();
+        ctx.translate(tsx + s / 2, tsy + s / 2);
+        ctx.rotate(t.dir * Math.PI / 2);
+        ctx.fillStyle = 'rgba(94,230,200,.9)';
+        const uu = s / 8;
+        ctx.beginPath();
+        ctx.moveTo(uu * 2, 0); ctx.lineTo(-uu * 0.8, -uu * 0.9); ctx.lineTo(-uu * 0.8, uu * 0.9);
+        ctx.closePath(); ctx.fill();
+        ctx.restore();
+      }
+    }
+  }
+
   // エフェクト（+1ポップ）
   ctx.textAlign = 'center'; ctx.font = 'bold 13px sans-serif';
   for (const f of fx) {
@@ -1283,15 +1315,75 @@ function a_pulse(a) { return (a.timer || 0) / CONFIG.ARM_INTERVAL > 0.75; }
 // =====================================================================
 // 入力（タップ／ドラッグ／ズーム）
 // =====================================================================
+// ベルト連続設置／連続撤去用：a→bを4方向ステップで繋ぐ（斜めはx優先→y優先で分解）
+function tilesBetween(a, b) {
+  const path = [];
+  let x = a.x, y = a.y;
+  while (x !== b.x) { x += Math.sign(b.x - x); path.push({ x, y }); }
+  while (y !== b.y) { y += Math.sign(b.y - y); path.push({ x, y }); }
+  return path;
+}
+function vecToDir(dx, dy) { return DIR_VEC.findIndex(d => d.x === dx && d.y === dy); }
+function paintModeActive() { return buildMode === 'belt' || eraseMode; }
+
+// ドラッグで拾った経路に沿ってベルトを連続設置。岩・鉱脈・既存設備・資材切れで停止
+function commitBeltDrag(tiles) {
+  let placed = 0;
+  for (const t of tiles) {
+    if (!G.explored[idx(t.x, t.y)]) break;
+    if (Math.round(G.player.x) === t.x && Math.round(G.player.y) === t.y) break;
+    if (buildingAt(t.x, t.y)) break;
+    const tt = G.tiles[idx(t.x, t.y)];
+    if (tt === T_ROCK || ORE_ITEM[tt]) break;
+    if (!canAfford(CONFIG.COSTS.belt)) break;
+    payCost(CONFIG.COSTS.belt);
+    G.buildings[bkey(t.x, t.y)] = { type: 'belt', x: t.x, y: t.y, dir: t.dir, item: null, progress: 0 };
+    placed++;
+  }
+  if (placed > 0) { markDirty(); saveGame(); }
+  toast(placed > 0 ? `ベルトを${placed}個設置した` : '設置できなかった（岩・鉱脈・設備・資材不足）', placed > 0 ? undefined : 'warn');
+}
+// ドラッグで拾った経路上の設備をまとめて撤去（拠点・ゲートはスキップして継続）
+function commitEraseDrag(tiles) {
+  let removed = 0;
+  for (const t of tiles) {
+    const b = buildingAt(t.x, t.y);
+    if (!b || b.type === 'base' || b.type === 'gate') continue;
+    removeBuilding(b);
+    removed++;
+  }
+  toast(removed > 0 ? `${removed}個の設備を撤去した` : '撤去できる設備がなかった', removed > 0 ? undefined : 'warn');
+}
+
 let ptr = null;
+let dragPath = null;   // {mode:'belt'|'erase', tiles:[{x,y,dir}]} 連続設置/撤去のプレビュー
 canvas.addEventListener('pointerdown', e => {
-  ptr = { id: e.pointerId, sx: e.clientX, sy: e.clientY, cx: cam.x, cy: cam.y, drag: false };
+  const paint = paintModeActive();
+  ptr = { id: e.pointerId, sx: e.clientX, sy: e.clientY, cx: cam.x, cy: cam.y, drag: false, paint };
+  if (paint) {
+    const [tx, ty] = screenToTile(e.clientX, e.clientY);
+    dragPath = { mode: buildMode === 'belt' ? 'belt' : 'erase', tiles: [{ x: tx, y: ty, dir: 0 }] };
+  }
 });
 canvas.addEventListener('pointermove', e => {
   if (!ptr || e.pointerId !== ptr.id) return;
   const dx = e.clientX - ptr.sx, dy = e.clientY - ptr.sy;
-  if (!ptr.drag && Math.hypot(dx, dy) > 12) { ptr.drag = true; followCam = false; }
-  if (ptr.drag) {
+  if (!ptr.drag && Math.hypot(dx, dy) > 12) { ptr.drag = true; if (!ptr.paint) followCam = false; }
+  if (!ptr.drag) return;
+  if (ptr.paint) {
+    const [tx, ty] = screenToTile(e.clientX, e.clientY);
+    const tiles = dragPath.tiles;
+    const last = tiles[tiles.length - 1];
+    if (tx !== last.x || ty !== last.y) {
+      for (const s of tilesBetween(last, { x: tx, y: ty })) {
+        const prev = tiles[tiles.length - 1];
+        const dir = vecToDir(s.x - prev.x, s.y - prev.y);
+        if (dir < 0) continue;
+        prev.dir = dir; // 直前タイルの向きを、進んだ方向で確定
+        tiles.push({ x: s.x, y: s.y, dir: 0 });
+      }
+    }
+  } else {
     cam.x = ptr.cx - dx / tilePx;
     cam.y = ptr.cy - dy / tilePx;
   }
@@ -1301,22 +1393,33 @@ canvas.addEventListener('pointerup', e => {
   if (!ptr.drag) {
     const [tx, ty] = screenToTile(e.clientX, e.clientY);
     onTapTile(tx, ty);
+  } else if (ptr.paint && dragPath) {
+    if (dragPath.mode === 'belt') commitBeltDrag(dragPath.tiles);
+    else commitEraseDrag(dragPath.tiles);
   }
-  ptr = null;
+  ptr = null; dragPath = null;
 });
-canvas.addEventListener('pointercancel', () => { ptr = null; });
+canvas.addEventListener('pointercancel', () => { ptr = null; dragPath = null; });
 
 document.getElementById('btn-zoomin').onclick = () => { tilePx = Math.min(64, Math.round(tilePx * 1.25)); };
 document.getElementById('btn-zoomout').onclick = () => { tilePx = Math.max(16, Math.round(tilePx / 1.25)); };
 document.getElementById('btn-center').onclick = () => { followCam = true; centerCamera(true); };
 document.getElementById('btn-settings').onclick = () => openSettings();
 document.getElementById('btn-build').onclick = () => openBuildMenu();
-document.getElementById('cancel-build').onclick = () => { buildMode = null; updateBuildModeUI(); };
+document.getElementById('btn-erase').onclick = () => {
+  eraseMode = true; buildMode = null; updateBuildModeUI();
+  toast('ドラッグ（またはタップ）で設備を撤去（拠点・ゲートは対象外）');
+};
+document.getElementById('cancel-build').onclick = () => { buildMode = null; eraseMode = false; updateBuildModeUI(); };
 
 function updateBuildModeUI() {
-  document.getElementById('cancel-build').style.display = buildMode ? 'block' : 'none';
-  document.getElementById('btn-build').style.display = buildMode ? 'none' : 'block';
-  if (buildMode) toast(BUILDINGS[buildMode].name + 'を置く場所をタップ');
+  const active = !!buildMode || eraseMode;
+  document.getElementById('btn-build').style.display = active ? 'none' : 'block';
+  document.getElementById('btn-erase').style.display = active ? 'none' : 'block';
+  const cancelBtn = document.getElementById('cancel-build');
+  cancelBtn.style.display = active ? 'block' : 'none';
+  cancelBtn.textContent = eraseMode ? '✕ 撤去終了' : '✕ 設置キャンセル';
+  if (buildMode) toast(BUILDINGS[buildMode].name + 'を置く場所をタップ' + (buildMode === 'belt' ? '（ドラッグで連続設置）' : ''));
 }
 
 // =====================================================================
