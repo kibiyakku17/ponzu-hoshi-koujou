@@ -298,6 +298,7 @@ function walkable(x, y) {
   const b = buildingAt(x, y);
   if (!b) return true;
   if (b.type === 'gate') return b.repaired;   // 修理済みゲートだけ通行可
+  if (b.type === 'belt') return true;         // ベルトの上は歩ける（長いラインで行き来を塞がないように）
   return false;
 }
 function invCount(inv, item) { return inv[item] || 0; }
