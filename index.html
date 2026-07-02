@@ -132,7 +132,7 @@
 
 <div id="clear-overlay">
   <canvas id="clear-canvas" width="420" height="320"></canvas>
-  <h1>救難信号 送信成功！</h1>
+  <h1 id="clear-title">救難信号 送信成功！</h1>
   <p id="clear-msg">アンテナが起動し、信号は星の海を越えていく。<br>
   探査ロボ・ぽん太はこの星で、迎えの船を待ちながら<br>工場をひらきつづけるのだった……。<br><br>― Phase 1 クリア！おめでとう！ ―</p>
   <button class="btn primary" id="btn-clear-continue" style="padding:12px 30px;font-size:15px;">つづける</button>
@@ -146,7 +146,9 @@
  * =====================================================================
  * ▼▼▼ 調整パラメータ（バランス調整はここをいじる） ▼▼▼ */
 const CONFIG = {
-  MAP: 48,               // マップ一辺タイル数
+  AREA_W: 48,             // 第1・第2エリアそれぞれの一辺タイル数
+  MAP_H: 48,              // マップの高さ（タイル数）
+  BORDER_W: 3,            // エリア間の境界壁の厚み（ゲートはこの中央に1マス）
   SEED: 20260702,        // マップ生成シード（変えると別マップ）
   VIEW_R: 4.5,           // 視界半径（タイル）
   MOVE_SPEED: 3.2,       // 移動速度（タイル/秒）
@@ -168,7 +170,11 @@ const CONFIG = {
   CHEST_CAP: 60,         // 保管箱の容量（合計）
   ANTENNA_RANGE: 5,      // アンテナを設置できる拠点からの距離
   AUTOSAVE_SEC: 10,
-  // 設備の設置コスト
+  BATTERY_UPGRADE_COST: { circuit: 3, crystal: 2 },  // バッテリー拡張の材料（1回のみ）
+  BATTERY_UPGRADE_MULT: 1.5,                          // バッテリー拡張後の最大容量倍率
+  OFFLINE_MAX_HOURS: 4,        // オフライン生産を計算する上限時間
+  OFFLINE_REPORT_MIN_SEC: 30,  // これ未満の不在時間はレポートしない
+  // 設備の設置コスト（gateは修理コスト）
   COSTS: {
     furnace:  { stone: 5 },
     chest:    { stone: 3 },
@@ -177,10 +183,13 @@ const CONFIG = {
     antenna:  { part: 5, stoneBlock: 5, crystal: 3 },
     arm:      { ironPlate: 1, part: 1 },
     belt:     { ironPlate: 1 },
+    gate:     { part: 10, stoneBlock: 10 },
+    beacon:   { circuit: 5, part: 10, crystal: 5 },
   },
   // クラフトレシピ（作業台）
   RECIPES: [
     { out: 'part', outN: 1, in: { ironPlate: 2 }, name: '部品' },
+    { out: 'circuit', outN: 1, in: { copperWire: 2, ironPlate: 1 }, name: '回路' },
   ],
 };
 /* ▲▲▲ 調整パラメータここまで ▲▲▲ */
@@ -220,10 +229,15 @@ const BUILDINGS = {
   antenna:   { name: '通信アンテナ', icon: '📡', desc: '拠点の近くに設置して起動すれば救難信号を送れる！' },
   arm:       { name: 'アーム', icon: '🦾', desc: '後ろの設備/ベルトから受け取り、前の設備/ベルトへ渡す（数秒に1個）。設置後タップで90度回転。' },
   belt:      { name: 'ベルト', icon: '➡️', desc: '乗ったアイテムを進行方向へ運ぶ。設備への出し入れはアーム経由。設置後タップで90度回転。' },
+  gate:      { name: '壊れたゲート', icon: '🚧' },
+  beacon:    { name: '誘導ビーコン', icon: '🛰️', desc: 'アンテナ起動後の最終目標。起動すると迎えの船に位置を知らせる。' },
 };
 
 const SAVE_KEY = 'ponzu_hoshi_koujou_v1';
-const N = CONFIG.MAP;
+// マップ構成：第1エリア｜境界壁(BORDER_W、中央にゲート)｜第2エリア
+const AREA_W = CONFIG.AREA_W, MAP_H = CONFIG.MAP_H, BORDER_W = CONFIG.BORDER_W;
+const W = AREA_W * 2 + BORDER_W, H = MAP_H;
+const GATE_X = AREA_W + Math.floor(BORDER_W / 2), GATE_Y = 24;
 
 // =====================================================================
 // 乱数（シード付き）
@@ -248,11 +262,11 @@ function hash2(x, y, n) {
 // ゲーム状態
 // =====================================================================
 const G = {
-  tiles: new Uint8Array(N * N),
-  ore: new Uint16Array(N * N),      // 鉱脈の残量
-  explored: new Uint8Array(N * N),
+  tiles: new Uint8Array(W * H),
+  ore: new Uint16Array(W * H),      // 鉱脈の残量
+  explored: new Uint8Array(W * H),
   buildings: {},                    // "x,y" -> building object
-  base: { x: 24, y: 24 },
+  base: { x: 24, y: 24 },           // 第1エリア内、局所座標=グローバル座標（第1エリアはx0=0に配置）
   player: {
     x: 24, y: 25,                   // タイル座標（float）
     path: [],                       // 移動先ノード列
@@ -260,48 +274,57 @@ const G = {
     inv: {},
     pending: null,                  // 到着後アクション {type,x,y}
     facing: 1,
+    batteryUpgraded: false,
   },
   flags: {},                        // クエスト進行フラグ
   cleared: false,
+  beaconCleared: false,
+  lastSeen: Date.now(),
   time: 0,
 };
 
-const idx = (x, y) => y * N + x;
-const inMap = (x, y) => x >= 0 && y >= 0 && x < N && y < N;
+const idx = (x, y) => y * W + x;
+const inMap = (x, y) => x >= 0 && y >= 0 && x < W && y < H;
 const bkey = (x, y) => x + ',' + y;
 const buildingAt = (x, y) => G.buildings[bkey(x, y)];
 function walkable(x, y) {
-  return inMap(x, y) && G.tiles[idx(x, y)] !== T_ROCK && !buildingAt(x, y);
+  if (!inMap(x, y) || G.tiles[idx(x, y)] === T_ROCK) return false;
+  const b = buildingAt(x, y);
+  if (!b) return true;
+  if (b.type === 'gate') return b.repaired;   // 修理済みゲートだけ通行可
+  return false;
 }
 function invCount(inv, item) { return inv[item] || 0; }
 function invAdd(inv, item, n) { inv[item] = (inv[item] || 0) + n; if (inv[item] <= 0) delete inv[item]; }
 function invTotal(inv) { return Object.values(inv).reduce((a, b) => a + b, 0); }
+function battMax() { return CONFIG.BATTERY_MAX * (G.player.batteryUpgraded ? CONFIG.BATTERY_UPGRADE_MULT : 1); }
 
 // =====================================================================
-// マップ生成
+// マップ生成（第1・第2エリアをそれぞれローカル生成してから貼り付け）
 // =====================================================================
-function genMap(seed) {
-  const rng = mulberry32(seed);
-  G.tiles.fill(T_PLAIN);
-  G.ore.fill(0);
+// 1エリア分（AREA_W×MAP_H）の地形をローカル座標で生成する
+function genAreaLocal(rng, opts) {
+  const LN = AREA_W;
+  const tiles = new Uint8Array(LN * MAP_H);
+  const ore = new Uint16Array(LN * MAP_H);
+  const lidx = (x, y) => y * LN + x;
+  const linMap = (x, y) => x >= 0 && y >= 0 && x < LN && y < MAP_H;
 
   // 岩クラスタ（ランダムウォーク）
-  for (let c = 0; c < 30; c++) {
-    let x = Math.floor(rng() * N), y = Math.floor(rng() * N);
+  for (let c = 0; c < (opts.rockClusters || 28); c++) {
+    let x = Math.floor(rng() * LN), y = Math.floor(rng() * MAP_H);
     const size = 4 + Math.floor(rng() * 8);
     for (let s = 0; s < size; s++) {
-      if (inMap(x, y)) G.tiles[idx(x, y)] = T_ROCK;
+      if (linMap(x, y)) tiles[lidx(x, y)] = T_ROCK;
       x += Math.floor(rng() * 3) - 1; y += Math.floor(rng() * 3) - 1;
     }
   }
-
-  // 鉱脈を置くヘルパー
   function placeVein(type, cx, cy, size) {
     let x = cx, y = cy, placed = 0;
     for (let s = 0; s < size * 3 && placed < size; s++) {
-      if (inMap(x, y) && G.tiles[idx(x, y)] === T_PLAIN) {
-        G.tiles[idx(x, y)] = type;
-        G.ore[idx(x, y)] = CONFIG.ORE_MIN + Math.floor(rng() * (CONFIG.ORE_MAX - CONFIG.ORE_MIN));
+      if (linMap(x, y) && tiles[lidx(x, y)] === T_PLAIN) {
+        tiles[lidx(x, y)] = type;
+        ore[lidx(x, y)] = CONFIG.ORE_MIN + Math.floor(rng() * (CONFIG.ORE_MAX - CONFIG.ORE_MIN));
         placed++;
       }
       x += Math.floor(rng() * 3) - 1; y += Math.floor(rng() * 3) - 1;
@@ -309,30 +332,76 @@ function genMap(seed) {
     return placed;
   }
 
-  // ランダム鉱脈
-  const bx = G.base.x, by = G.base.y;
-  const farFromBase = (x, y, d) => Math.hypot(x - bx, y - by) >= d;
-  for (let i = 0; i < 7; i++) placeVein(T_IRON, Math.floor(rng() * N), Math.floor(rng() * N), 4 + Math.floor(rng() * 4));
-  for (let i = 0; i < 7; i++) placeVein(T_STONE, Math.floor(rng() * N), Math.floor(rng() * N), 4 + Math.floor(rng() * 4));
+  const bx = 24, by = 24; // 第1エリアの拠点位置（G.baseと一致させる）
+  for (let i = 0; i < 7; i++) placeVein(T_IRON, Math.floor(rng() * LN), Math.floor(rng() * MAP_H), 4 + Math.floor(rng() * 4));
+  for (let i = 0; i < 7; i++) placeVein(T_STONE, Math.floor(rng() * LN), Math.floor(rng() * MAP_H), 4 + Math.floor(rng() * 4));
   for (let i = 0; i < 5; i++) {
     let x, y, guard = 0;
-    do { x = Math.floor(rng() * N); y = Math.floor(rng() * N); } while (!farFromBase(x, y, 12) && ++guard < 50);
+    do { x = Math.floor(rng() * LN); y = Math.floor(rng() * MAP_H); }
+    while (opts.hasBase && Math.hypot(x - bx, y - by) < 12 && ++guard < 50);
     placeVein(T_CRYSTAL, x, y, 3 + Math.floor(rng() * 3));
   }
-
-  // 拠点周辺を平地化
-  for (let dy = -3; dy <= 3; dy++) for (let dx = -3; dx <= 3; dx++) {
-    const x = bx + dx, y = by + dy;
-    if (inMap(x, y)) { G.tiles[idx(x, y)] = T_PLAIN; G.ore[idx(x, y)] = 0; }
+  if (opts.copper) {
+    for (let i = 0; i < 8; i++) placeVein(T_COPPER, Math.floor(rng() * LN), Math.floor(rng() * MAP_H), 4 + Math.floor(rng() * 4));
   }
-  // 拠点近くに鉄・石の鉱脈を保証
-  placeVein(T_IRON, bx - 5, by - 4, 5);
-  placeVein(T_STONE, bx + 5, by + 4, 5);
 
-  // 拠点設置
+  if (opts.hasBase) {
+    for (let dy = -3; dy <= 3; dy++) for (let dx = -3; dx <= 3; dx++) {
+      const x = bx + dx, y = by + dy;
+      if (linMap(x, y)) { tiles[lidx(x, y)] = T_PLAIN; ore[lidx(x, y)] = 0; }
+    }
+    placeVein(T_IRON, bx - 5, by - 4, 5);
+    placeVein(T_STONE, bx + 5, by + 4, 5);
+  } else if (opts.copper) {
+    // ゲート側の入口付近に銅・鉄鉱脈を保証
+    for (let dy = -2; dy <= 2; dy++) for (let dx = -2; dx <= 2; dx++) {
+      const x = 2 + dx, y = GATE_Y + dy;
+      if (linMap(x, y)) { tiles[lidx(x, y)] = T_PLAIN; ore[lidx(x, y)] = 0; }
+    }
+    placeVein(T_COPPER, 3, GATE_Y, 5);
+    placeVein(T_IRON, 2, GATE_Y - 6, 4);
+  }
+
+  return { tiles, ore };
+}
+
+function pasteArea(local, x0) {
+  for (let y = 0; y < MAP_H; y++) for (let x = 0; x < AREA_W; x++) {
+    const gi = idx(x0 + x, y), li = y * AREA_W + x;
+    G.tiles[gi] = local.tiles[li];
+    G.ore[gi] = local.ore[li];
+  }
+}
+
+// 境界壁＋ゲート開口部を彫る（tiles/oreは任意の配列に対して実行できる：移行処理でも再利用）
+function carveBorderAndGate(tiles, ore) {
+  for (let y = 0; y < MAP_H; y++) for (let x = AREA_W; x < AREA_W + BORDER_W; x++) {
+    tiles[idx(x, y)] = T_ROCK; ore[idx(x, y)] = 0;
+  }
+  // ゲートの行は境界の壁の厚み全体＋両側の接続タイルを地形として通行可能にする。
+  // 未修理の間は、ゲート「建物」自体（walkable()）が通行を塞ぐ。
+  for (let x = AREA_W - 1; x <= AREA_W + BORDER_W; x++) {
+    tiles[idx(x, GATE_Y)] = T_PLAIN; ore[idx(x, GATE_Y)] = 0;
+  }
+}
+
+function genMap(seed) {
+  const rng = mulberry32(seed);
+  G.tiles.fill(T_ROCK);
+  G.ore.fill(0);
+
+  const area1 = genAreaLocal(rng, { hasBase: true, rockClusters: 30 });
+  pasteArea(area1, 0);
+  const area2 = genAreaLocal(rng, { hasBase: false, copper: true, rockClusters: 24 });
+  pasteArea(area2, AREA_W + BORDER_W);
+  carveBorderAndGate(G.tiles, G.ore);
+
   G.buildings = {};
-  G.buildings[bkey(bx, by)] = { type: 'base', x: bx, y: by };
-  G.player.x = bx; G.player.y = by + 1;
+  G.buildings[bkey(G.base.x, G.base.y)] = { type: 'base', x: G.base.x, y: G.base.y };
+  G.buildings[bkey(GATE_X, GATE_Y)] = { type: 'gate', x: GATE_X, y: GATE_Y, repaired: false };
+  G.player.x = G.base.x; G.player.y = G.base.y + 1;
+  G.player.batteryUpgraded = false;
+  G.beaconCleared = false;
 }
 
 // =====================================================================
@@ -483,6 +552,7 @@ function tryPlace(type, x, y) {
   if (type === 'antenna') { b.active = false; }
   if (type === 'arm') { b.dir = 0; b.timer = 0; }
   if (type === 'belt') { b.dir = 0; b.item = null; b.progress = 0; }
+  if (type === 'beacon') { b.active = false; }
   G.buildings[bkey(x, y)] = b;
   buildMode = null;
   updateBuildModeUI();
@@ -667,8 +737,9 @@ function update(dt) {
       p.battery = Math.max(0, p.battery - CONFIG.MOVE_COST * step);
     }
     if (followCam) centerCamera(false);
-    // バッテリー警告
-    if (p.battery <= CONFIG.LOW_BATTERY && !lowWarned && p.battery > 0) {
+    // バッテリー警告（最大容量に対する割合で判定。バッテリー拡張後も同じ％で警告）
+    const lowThreshold = battMax() * (CONFIG.LOW_BATTERY / CONFIG.BATTERY_MAX);
+    if (p.battery <= lowThreshold && !lowWarned && p.battery > 0) {
       lowWarned = true;
       toast('⚠️ バッテリー残りわずか！拠点に戻って充電しよう', 'warn');
     }
@@ -685,10 +756,10 @@ function update(dt) {
   // --- 充電 ---
   const nearBase = Math.hypot(p.x - G.base.x, p.y - G.base.y) <= 1.8;
   const chargingEl = document.getElementById('charging');
-  if (nearBase && p.battery < CONFIG.BATTERY_MAX) {
-    p.battery = Math.min(CONFIG.BATTERY_MAX, p.battery + CONFIG.CHARGE_RATE * dt);
+  if (nearBase && p.battery < battMax()) {
+    p.battery = Math.min(battMax(), p.battery + CONFIG.CHARGE_RATE * dt);
     chargingEl.style.display = 'inline';
-    if (p.battery > CONFIG.LOW_BATTERY) lowWarned = false;
+    if (p.battery > battMax() * (CONFIG.LOW_BATTERY / CONFIG.BATTERY_MAX)) lowWarned = false;
   } else {
     chargingEl.style.display = 'none';
   }
@@ -748,24 +819,38 @@ const QUESTS = [
   { id: 'antenna',  check: () => hasBuilding('antenna'), text: '<b>通信アンテナ</b> を拠点の近くに建てよう（部品×5＋石ブロック×5＋結晶×3）' },
   { id: 'activate', check: () => G.cleared, text: 'アンテナをタップして <b>起動</b> しよう！' },
 ];
+// アンテナ起動後の継続目標
+const QUESTS_POST = [
+  { id: 'gate',    check: () => { const g = buildingOfType('gate'); return !!(g && g.repaired); },
+    text: '東側の<b>壊れたゲート</b>を修理して第2エリアへ行こう（部品×10＋石ブロック×10）' },
+  { id: 'copper',  check: () => everHad('copperWire'), text: '第2エリアで<b>銅鉱石</b>を集めて精錬炉で<b>銅線</b>を作ろう' },
+  { id: 'circuit', check: () => everHad('circuit'), text: '作業台で<b>回路</b>を作ろう（銅線×2＋鉄板×1）' },
+  { id: 'battery', check: () => !!G.player.batteryUpgraded, text: '作業台で<b>バッテリー拡張</b>をしよう（回路×3＋結晶×2）' },
+  { id: 'beacon',  check: () => G.beaconCleared, text: '<b>誘導ビーコン</b>を建てて起動しよう（回路×5＋部品×10＋結晶×5）' },
+];
 function hasBuilding(type) { return Object.values(G.buildings).some(b => b.type === type); }
+function buildingOfType(type) { return Object.values(G.buildings).find(b => b.type === type); }
 function everHad(item) { return !!G.flags['had_' + item]; }
 function totalEverMined() { return 0; } // gather判定は所持数で簡易化
 function updateFlags() {
-  for (const k of ['ironPlate', 'part']) {
+  for (const k of ['ironPlate', 'part', 'copperWire', 'circuit']) {
     if (invCount(G.player.inv, k) > 0) {
       if (!G.flags['had_' + k]) { G.flags['had_' + k] = true; markDirty(); }
     }
   }
-  for (const q of QUESTS) {
+  for (const q of [...QUESTS, ...QUESTS_POST]) {
     if (!G.flags['q_' + q.id] && q.check()) { G.flags['q_' + q.id] = true; markDirty(); }
   }
 }
 function renderQuest() {
   const el = document.getElementById('quest');
-  if (G.cleared) { el.innerHTML = '🎉 クリア済み！自由に工場をひろげよう'; return; }
-  const q = QUESTS.find(q => !G.flags['q_' + q.id]);
-  el.innerHTML = q ? '🎯 ' + q.text : '🎉 全ステップ完了！';
+  if (!G.cleared) {
+    const q = QUESTS.find(q => !G.flags['q_' + q.id]);
+    el.innerHTML = q ? '🎯 ' + q.text : '🎉 全ステップ完了！';
+    return;
+  }
+  const q2 = QUESTS_POST.find(q => !G.flags['q_' + q.id]);
+  el.innerHTML = q2 ? '🎯 ' + q2.text : '🎉 すべての目標を達成した！自由に工場をひろげよう';
 }
 
 // =====================================================================
@@ -897,7 +982,7 @@ function drawTile(x, y, sx, sy, s) {
     ctx.fillStyle = '#2a3148';
     ctx.fillRect(sx + u * 1.5, sy + s - u * 2.5, s - u * 3, u * 1.5);
   } else if (ORE_ITEM[t]) {
-    const colors = { [T_IRON]: ['#c9784a', '#8f4f2c'], [T_STONE]: ['#aab3bf', '#6f7885'], [T_CRYSTAL]: ['#5ee6c8', '#2a9d84'] };
+    const colors = { [T_IRON]: ['#c9784a', '#8f4f2c'], [T_STONE]: ['#aab3bf', '#6f7885'], [T_CRYSTAL]: ['#5ee6c8', '#2a9d84'], [T_COPPER]: ['#ff9248', '#b85a1e'] };
     const [c1, c2] = colors[t];
     const rich = G.ore[idx(x, y)] / CONFIG.ORE_MAX;   // 残量で粒の数を変える
     const lumps = Math.max(2, Math.round(2 + rich * 3));
@@ -1061,6 +1146,39 @@ function drawBuilding(b, sx, sy, s) {
       ctx.arc(sx + s / 2, sy - s * 0.8, u * 2 + r * s * 1.2, 0, 7);
       ctx.stroke();
     }
+  } else if (b.type === 'gate') {
+    ctx.fillStyle = '#4a5568';
+    ctx.fillRect(sx + u * 0.5, sy, u * 1.2, s);
+    ctx.fillRect(sx + s - u * 1.7, sy, u * 1.2, s);
+    if (b.repaired) {
+      ctx.fillStyle = '#5ee6c8';
+      ctx.fillRect(sx + u * 0.5, sy + u * 3.5, u * 1.2, u * 1.2);
+      ctx.fillRect(sx + s - u * 1.7, sy + u * 3.5, u * 1.2, u * 1.2);
+    } else {
+      ctx.fillStyle = '#ff6b81';
+      ctx.fillRect(sx + u * 1.5, sy + u * 2.5, s - u * 3, u * 2);
+      ctx.fillStyle = '#c94a5e';
+      ctx.fillRect(sx + u * 1.5, sy + u * 4.6, s - u * 3, u);
+    }
+  } else if (b.type === 'beacon') {
+    ctx.fillStyle = '#39415f';
+    ctx.fillRect(sx + u * 1.2, sy + s - u * 2, s - u * 2.4, u * 1.5);
+    ctx.fillStyle = '#9b87c0';
+    ctx.fillRect(sx + s / 2 - u * 0.6, sy - s * 0.9, u * 1.2, s * 1.7);
+    ctx.fillStyle = '#ffd94b';
+    ctx.beginPath(); ctx.arc(sx + s / 2, sy - s * 0.95, u * 1.4, 0, 7); ctx.fill();
+    if (b.active) {
+      const r = (G.time * 1.4) % (Math.PI * 2);
+      ctx.strokeStyle = 'rgba(155,135,192,.85)';
+      ctx.lineWidth = 2;
+      ctx.beginPath();
+      ctx.moveTo(sx + s / 2, sy - s * 0.95);
+      ctx.lineTo(sx + s / 2 + Math.cos(r) * s * 1.3, sy - s * 0.95 + Math.sin(r) * s * 1.3);
+      ctx.stroke();
+      const r2 = (G.time % 1.5) / 1.5;
+      ctx.strokeStyle = `rgba(155,135,192,${1 - r2})`;
+      ctx.beginPath(); ctx.arc(sx + s / 2, sy - s * 0.95, u * 1.6 + r2 * s * 1.1, 0, 7); ctx.stroke();
+    }
   } else if (b.type === 'belt') {
     const ang = b.dir * Math.PI / 2;
     ctx.save();
@@ -1145,7 +1263,7 @@ function updateBuildModeUI() {
 // =====================================================================
 function renderBattery() {
   const p = G.player;
-  const pct = Math.round(p.battery / CONFIG.BATTERY_MAX * 100);
+  const pct = Math.round(p.battery / battMax() * 100);
   const fill = document.getElementById('battery-fill');
   fill.style.width = pct + '%';
   fill.style.background = pct <= 25 ? 'var(--danger)' : pct <= 50 ? 'var(--warn)' : 'var(--accent)';
@@ -1191,6 +1309,7 @@ function refreshOpenPanel() {
 // --- 建設メニュー ---
 function openBuildMenu(keep) {
   const list = ['furnace', 'chest', 'workbench', 'miner', 'belt', 'arm', 'antenna'];
+  if (G.cleared) list.push('beacon');
   const rows = list.map(t => {
     const ok = canAfford(CONFIG.COSTS[t]);
     return `<div class="row">
@@ -1242,8 +1361,8 @@ function openBuilding(b, keep) {
     };
     const outTotal = invTotal(b.output);
     html = `<h2>🔥 精錬炉<button class="close-x">✕</button></h2>
-      <h3>投入（鉄鉱石→鉄板／石→石ブロック）</h3>
-      ${inRow('ironOre')}${inRow('stone')}
+      <h3>投入（鉄鉱石→鉄板／石→石ブロック／銅鉱石→銅線）</h3>
+      ${inRow('ironOre')}${inRow('stone')}${inRow('copperOre')}
       <h3>加工中 ${b.job ? '：' + ITEMS[b.job].name : ''}</h3>
       <div class="progress"><i style="width:${prog}%"></i></div>
       <h3>完成品</h3>
@@ -1274,7 +1393,16 @@ function openBuilding(b, keep) {
         <button class="btn small" data-craft5="${i}" ${ok ? '' : 'disabled'}>×5</button>
       </div>`;
     }).join('');
-    html = `<h2>🔧 作業台<button class="close-x">✕</button></h2>${rows}` + removeBtn;
+    const bu = CONFIG.BATTERY_UPGRADE_COST;
+    const buOk = canAfford(bu) && !G.player.batteryUpgraded;
+    const buRow = `<h3>アップグレード</h3>
+      <div class="row">
+        <span class="dot" style="background:#ffd94b"></span>
+        <div class="grow"><b>🔋 バッテリー拡張</b>（1回のみ）<br><span class="cost">${costText(bu)}</span><br>
+        <span class="cost">${G.player.batteryUpgraded ? '適用済み：最大容量+' + Math.round((CONFIG.BATTERY_UPGRADE_MULT - 1) * 100) + '%' : '最大バッテリー+' + Math.round((CONFIG.BATTERY_UPGRADE_MULT - 1) * 100) + '%'}</span></div>
+        <button class="btn ${buOk ? 'primary' : ''}" id="pb-battery-upgrade" ${buOk ? '' : 'disabled'}>強化</button>
+      </div>`;
+    html = `<h2>🔧 作業台<button class="close-x">✕</button></h2>${rows}${buRow}` + removeBtn;
   }
   else if (b.type === 'antenna') {
     html = `<h2>📡 通信アンテナ<button class="close-x">✕</button></h2>
@@ -1291,6 +1419,18 @@ function openBuilding(b, keep) {
     html = `<h2>➡️ ベルト（向き：${DIR_VEC[b.dir].n}）<button class="close-x">✕</button></h2>
       <div class="row"><div class="grow">乗ったアイテムを${DIR_VEC[b.dir].n}方向へ運ぶ。${b.item ? '現在：' + ITEMS[b.item].name : '空き'}</div></div>
       <div style="margin-top:10px"><button class="btn primary" id="pb-rotate" style="width:100%;padding:12px;">🔄 90度回転</button></div>` + removeBtn;
+  }
+  else if (b.type === 'gate') {
+    html = `<h2>🚧 壊れたゲート<button class="close-x">✕</button></h2>
+      <div class="row"><div class="grow">${b.repaired ? '修理済み。第2エリアへ通行できる。' : '第2エリアへの通路をふさいでいる。修理すれば通れるようになる。'}</div></div>
+      ${b.repaired ? '' : `<div class="row"><div class="grow">修理コスト：${costText(CONFIG.COSTS.gate)}</div></div>
+      <div style="margin-top:12px"><button class="btn primary" id="pb-repair" style="width:100%;padding:14px;font-size:15px;" ${canAfford(CONFIG.COSTS.gate) ? '' : 'disabled'}>🔧 修理する</button></div>`}`;
+  }
+  else if (b.type === 'beacon') {
+    html = `<h2>🛰️ 誘導ビーコン<button class="close-x">✕</button></h2>
+      <div class="row"><div class="grow">${b.active ? '起動中。迎えの船に位置を知らせている…' : '準備完了！起動すれば迎えの船に位置を知らせられる。'}</div></div>
+      ${b.active ? '' : '<div style="margin-top:12px"><button class="btn primary" id="pb-beacon-activate" style="width:100%;padding:14px;font-size:15px;">🚀 ビーコンを起動する</button></div>'}` +
+      (b.active ? '' : removeBtn);
   }
   showPanel(html);
   openedPanel = { kind: 'building', b };
@@ -1341,6 +1481,24 @@ function openBuilding(b, keep) {
     markDirty(); saveGame();
     openBuilding(b);
   });
+  panelEl.querySelector('#pb-battery-upgrade')?.addEventListener('click', () => {
+    if (G.player.batteryUpgraded || !canAfford(CONFIG.BATTERY_UPGRADE_COST)) return;
+    payCost(CONFIG.BATTERY_UPGRADE_COST);
+    const oldMax = battMax();
+    G.player.batteryUpgraded = true;
+    G.player.battery = G.player.battery / oldMax * battMax();
+    toast('バッテリーを拡張した！最大容量+' + Math.round((CONFIG.BATTERY_UPGRADE_MULT - 1) * 100) + '%');
+    markDirty(); saveGame();
+    openBuilding(b);
+  });
+  panelEl.querySelector('#pb-repair')?.addEventListener('click', () => {
+    if (!canAfford(CONFIG.COSTS.gate)) return;
+    payCost(CONFIG.COSTS.gate);
+    b.repaired = true;
+    toast('ゲートを修理した！第2エリアへ進める');
+    closePanel(); markDirty(); saveGame();
+  });
+  panelEl.querySelector('#pb-beacon-activate')?.addEventListener('click', () => activateBeacon(b));
 }
 
 // --- 設定 ---
@@ -1391,15 +1549,30 @@ function activateAntenna(b) {
   G.cleared = true;
   closePanel();
   saveGame();
-  drawClearArt();
+  document.getElementById('clear-title').textContent = '救難信号 送信成功！';
+  document.getElementById('clear-msg').innerHTML = 'アンテナが起動し、信号は星の海を越えていく。<br>' +
+    '探査ロボ・ぽん太はこの星で、迎えの船を待ちながら<br>工場をひらきつづけるのだった……。<br><br>― Phase 1 クリア！おめでとう！ ―';
+  drawClearArt('antenna');
   document.getElementById('clear-overlay').style.display = 'flex';
+}
+function activateBeacon(b) {
+  b.active = true;
+  G.beaconCleared = true;
+  closePanel();
+  saveGame();
+  document.getElementById('clear-title').textContent = '誘導ビーコン 起動成功！';
+  document.getElementById('clear-msg').innerHTML = 'ビーコンの光が夜空を貫き、迎えの船へ道しるべを示す。<br>' +
+    '探査ロボ・ぽん太の物語は、まだまだ続いていく……。<br><br>― Phase 2 クリア！おめでとう！ ―';
+  drawClearArt('beacon');
+  document.getElementById('clear-overlay').style.display = 'flex';
+  markDirty();
 }
 document.getElementById('btn-clear-continue').onclick = () => {
   document.getElementById('clear-overlay').style.display = 'none';
   markDirty();
 };
 
-function drawClearArt() {
+function drawClearArt(variant) {
   const c = document.getElementById('clear-canvas');
   const x = c.getContext('2d');
   const W = c.width, H = c.height;
@@ -1428,8 +1601,9 @@ function drawClearArt() {
   x.fillStyle = '#cfd8ff'; x.beginPath(); x.arc(ax, ay - 92, 22, Math.PI * 0.95, Math.PI * 2.05); x.fill();
   x.fillStyle = '#ff6b81'; x.fillRect(ax - 4, ay - 104, 8, 8);
   // 信号
+  const glow = variant === 'beacon' ? '155,135,192' : '94,230,200';
   for (let i = 1; i <= 3; i++) {
-    x.strokeStyle = `rgba(94,230,200,${1 - i * 0.25})`;
+    x.strokeStyle = `rgba(${glow},${1 - i * 0.25})`;
     x.lineWidth = 3;
     x.beginPath(); x.arc(ax, ay - 100, 14 + i * 16, Math.PI * 1.15, Math.PI * 1.85); x.stroke();
   }
@@ -1465,25 +1639,31 @@ function toast(msg, kind) {
 // =====================================================================
 function makeSave() {
   return {
-    v: 1,
+    v: 2,
     seed: CONFIG.SEED,
     tiles: Array.from(G.tiles).join(''),
     ore: Array.from(G.ore),
     explored: Array.from(G.explored).join(''),
     buildings: Object.values(G.buildings),
-    player: { x: G.player.x, y: G.player.y, battery: G.player.battery, inv: G.player.inv },
+    player: {
+      x: G.player.x, y: G.player.y, battery: G.player.battery, inv: G.player.inv,
+      batteryUpgraded: !!G.player.batteryUpgraded,
+    },
     flags: G.flags,
     cleared: G.cleared,
+    beaconCleared: !!G.beaconCleared,
     time: G.time,
+    lastSeen: G.lastSeen,
   };
 }
 function saveGame() {
+  G.lastSeen = Date.now();
   try { localStorage.setItem(SAVE_KEY, JSON.stringify(makeSave())); } catch (e) { /* 容量オーバー等は無視 */ }
 }
 function applySave(d) {
-  for (let i = 0; i < N * N; i++) G.tiles[i] = +d.tiles[i];
+  for (let i = 0; i < d.tiles.length; i++) G.tiles[i] = +d.tiles[i];
   G.ore.set(d.ore);
-  for (let i = 0; i < N * N; i++) G.explored[i] = +d.explored[i];
+  for (let i = 0; i < d.explored.length; i++) G.explored[i] = +d.explored[i];
   G.buildings = {};
   for (const b of d.buildings) G.buildings[bkey(b.x, b.y)] = b;
   const base = d.buildings.find(b => b.type === 'base');
@@ -1491,20 +1671,62 @@ function applySave(d) {
   G.player.x = d.player.x; G.player.y = d.player.y;
   G.player.battery = d.player.battery;
   G.player.inv = d.player.inv || {};
+  G.player.batteryUpgraded = !!d.player.batteryUpgraded;
   G.player.path = []; G.player.pending = null;
   G.flags = d.flags || {};
   G.cleared = !!d.cleared;
+  G.beaconCleared = !!d.beaconCleared;
   G.time = d.time || 0;
+  G.lastSeen = d.lastSeen || Date.now();
   buildMode = null;
   centerCamera(true);
   markDirty();
 }
+
+// Phase1（v1・48×48単一エリア）のセーブを新マップ形式（v2・第1＋第2エリア）へ移行
+function migrateV1(d) {
+  const OLD_N = 48;
+  const newTiles = new Uint8Array(W * H).fill(T_ROCK);
+  const newOre = new Uint16Array(W * H);
+  const newExplored = new Uint8Array(W * H);
+  for (let y = 0; y < OLD_N; y++) for (let x = 0; x < OLD_N; x++) {
+    const oi = y * OLD_N + x, ni = idx(x, y);   // 第1エリアはx0=0のまま座標が一致する
+    newTiles[ni] = +d.tiles[oi];
+    newOre[ni] = d.ore[oi];
+    newExplored[ni] = +d.explored[oi];
+  }
+  const rng = mulberry32((d.seed || CONFIG.SEED) + 777);
+  const area2 = genAreaLocal(rng, { hasBase: false, copper: true, rockClusters: 24 });
+  for (let y = 0; y < MAP_H; y++) for (let x = 0; x < AREA_W; x++) {
+    const ni = idx(AREA_W + BORDER_W + x, y), li = y * AREA_W + x;
+    newTiles[ni] = area2.tiles[li];
+    newOre[ni] = area2.ore[li];
+  }
+  carveBorderAndGate(newTiles, newOre);
+
+  return {
+    v: 2,
+    seed: d.seed,
+    tiles: Array.from(newTiles).join(''),
+    ore: Array.from(newOre),
+    explored: Array.from(newExplored).join(''),
+    buildings: [...d.buildings, { type: 'gate', x: GATE_X, y: GATE_Y, repaired: false }],
+    player: { x: d.player.x, y: d.player.y, battery: d.player.battery, inv: d.player.inv || {}, batteryUpgraded: false },
+    flags: d.flags || {},
+    cleared: !!d.cleared,
+    beaconCleared: false,
+    time: d.time || 0,
+    lastSeen: Date.now(),
+  };
+}
+
 function loadGame() {
   try {
     const raw = localStorage.getItem(SAVE_KEY);
     if (!raw) return false;
-    const d = JSON.parse(raw);
-    if (d.v !== 1) return false;
+    let d = JSON.parse(raw);
+    if (d.v === 1) { d = migrateV1(d); toast('セーブデータを更新しました（第2エリアが追加されたよ）'); }
+    if (d.v !== 2) return false;
     applySave(d);
     return true;
   } catch (e) { return false; }
@@ -1513,12 +1735,17 @@ function loadGame() {
 // =====================================================================
 // 起動
 // =====================================================================
+document.addEventListener('visibilitychange', () => { if (document.hidden) saveGame(); });
+window.addEventListener('pagehide', () => saveGame());
+
 function boot() {
   resize();
   if (!loadGame()) {
     genMap(CONFIG.SEED);
+    G.lastSeen = Date.now();
     toast('未知の惑星に不時着した…。まずは鉱脈をタップして資源を集めよう！');
   }
+  G.lastSeen = Date.now();
   centerCamera(true);
   markDirty();
   updateBuildModeUI();
