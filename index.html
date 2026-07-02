@@ -1733,6 +1733,49 @@ function loadGame() {
 }
 
 // =====================================================================
+// オフライン生産
+// =====================================================================
+// 全設備の保有アイテム総量をスナップショット（留守中レポートの差分計算用）
+function snapshotProduction() {
+  const totals = {};
+  for (const b of Object.values(G.buildings)) {
+    for (const src of [b.buffer, b.input, b.output, b.inv]) {
+      if (!src) continue;
+      for (const [k, v] of Object.entries(src)) totals[k] = (totals[k] || 0) + v;
+    }
+    if (b.item) totals[b.item] = (totals[b.item] || 0) + 1;
+  }
+  return totals;
+}
+// 1秒刻みで tickMachines を繰り返し、通常プレイと同じロジックで不在時間分を早送りする
+// （枯渇・容量上限などはtick関数自体が処理するため、ここで特別扱いする必要はない）
+function simulateOffline(totalSeconds) {
+  const STEP = 1;
+  let remaining = totalSeconds;
+  while (remaining > 0.001) {
+    const step = Math.min(STEP, remaining);
+    tickMachines(step);
+    remaining -= step;
+  }
+}
+function showOfflineReport(seconds, before, after) {
+  const hrs = Math.floor(seconds / 3600), mins = Math.floor((seconds % 3600) / 60);
+  const timeTxt = hrs > 0 ? `${hrs}時間${mins}分` : `${mins}分`;
+  const keys = new Set([...Object.keys(before), ...Object.keys(after)]);
+  const rows = [...keys]
+    .map(k => ({ k, diff: (after[k] || 0) - (before[k] || 0) }))
+    .filter(r => r.diff !== 0 && ITEMS[r.k])
+    .sort((a, b) => b.diff - a.diff);
+  const list = rows.length
+    ? rows.map(r => `<div class="row"><span class="dot" style="background:${ITEMS[r.k].color}"></span><div class="grow">${ITEMS[r.k].name}</div><b style="color:${r.diff > 0 ? 'var(--accent)' : 'var(--danger)'}">${r.diff > 0 ? '+' : ''}${r.diff}</b></div>`).join('')
+    : '<div class="row">目立った変化はなかった</div>';
+  showPanel(`<h2>🌙 留守中の生産レポート<button class="close-x">✕</button></h2>
+    <div class="row"><div class="grow">${timeTxt}ぶんの時間が経過し、自動化設備が稼働していた。</div></div>
+    ${list}`);
+  openedPanel = null;
+}
+
+// =====================================================================
 // 起動
 // =====================================================================
 document.addEventListener('visibilitychange', () => { if (document.hidden) saveGame(); });
@@ -1740,10 +1783,18 @@ window.addEventListener('pagehide', () => saveGame());
 
 function boot() {
   resize();
-  if (!loadGame()) {
+  const hadSave = loadGame();
+  if (!hadSave) {
     genMap(CONFIG.SEED);
-    G.lastSeen = Date.now();
     toast('未知の惑星に不時着した…。まずは鉱脈をタップして資源を集めよう！');
+  } else {
+    const elapsedSec = Math.min(CONFIG.OFFLINE_MAX_HOURS * 3600, Math.max(0, (Date.now() - (G.lastSeen || Date.now())) / 1000));
+    if (elapsedSec > CONFIG.OFFLINE_REPORT_MIN_SEC) {
+      const before = snapshotProduction();
+      simulateOffline(elapsedSec);
+      const after = snapshotProduction();
+      showOfflineReport(elapsedSec, before, after);
+    }
   }
   G.lastSeen = Date.now();
   centerCamera(true);
