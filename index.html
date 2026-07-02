@@ -189,6 +189,7 @@ const CONFIG = {
   MINER_MK2_SPEED_MULT: 1.5,// 採掘機Mk2の採掘速度倍率
   SENSOR_UPGRADE_MULT: 1.5, // 広域センサー研究後の視界半径倍率
   EXPLORE_SPEED_MULT: 1.3,  // 探査強化研究後の移動速度倍率
+  EXPLORE_BATTERY_MULT: 1.5,// 探査強化研究後の最大バッテリー倍率（バッテリー拡張と重複して掛かる）
   CHEST_CAP: 60,         // 保管箱の容量（合計）
   ANTENNA_RANGE: 5,      // アンテナを設置できる拠点からの距離
   AUTOSAVE_SEC: 10,
@@ -282,6 +283,7 @@ const BUILDINGS = {
   chestIn:   { name: '搬入口付き保管箱', icon: '📥', desc: 'ベルトから直接受け入れできる保管箱の上位版。容量は通常箱と同じ。' },
   fastBelt:  { name: '高速ベルト', icon: '⏩', desc: '通常のベルトの2倍の速度で運ぶ。設置後タップで90度回転。ドラッグで連続設置。' },
   minerMk2:  { name: '採掘機Mk2', icon: '⛏️', desc: '採掘範囲5×5、速度1.5倍の上位採掘機。' },
+  fastArm:   { name: '高速アーム', icon: '🦾', desc: '通常のアームの2倍の速度で動く。設置後タップで90度回転。' },
 };
 
 const SAVE_KEY = 'ponzu_hoshi_koujou_v1';
@@ -358,10 +360,18 @@ function isBeltLike(type) { return type === 'belt' || type === 'fastBelt' || typ
 function beltTime(b) { return b.type === 'fastBelt' ? CONFIG.BELT_TIME / CONFIG.FAST_BELT_SPEED_MULT : CONFIG.BELT_TIME; }
 function minerRadius(b) { return b.type === 'minerMk2' ? CONFIG.MINER_MK2_RADIUS : CONFIG.MINER_RADIUS; }
 function minerInterval(b) { return b.type === 'minerMk2' ? CONFIG.MINER_INTERVAL / CONFIG.MINER_MK2_SPEED_MULT : CONFIG.MINER_INTERVAL; }
+function armInterval(a) { return a.type === 'fastArm' ? CONFIG.ARM_INTERVAL / CONFIG.FAST_ARM_SPEED_MULT : CONFIG.ARM_INTERVAL; }
+function effectiveViewR() { return CONFIG.VIEW_R * (G.research.sensorUpgrade ? CONFIG.SENSOR_UPGRADE_MULT : 1); }
+function moveSpeedMult() { return G.research.exploreUpgrade ? CONFIG.EXPLORE_SPEED_MULT : 1; }
 function invCount(inv, item) { return inv[item] || 0; }
 function invAdd(inv, item, n) { inv[item] = (inv[item] || 0) + n; if (inv[item] <= 0) delete inv[item]; }
 function invTotal(inv) { return Object.values(inv).reduce((a, b) => a + b, 0); }
-function battMax() { return CONFIG.BATTERY_MAX * (G.player.batteryUpgraded ? CONFIG.BATTERY_UPGRADE_MULT : 1); }
+function battMax() {
+  // 作業台のバッテリー拡張と探査強化研究は重複して掛かる
+  return CONFIG.BATTERY_MAX
+    * (G.player.batteryUpgraded ? CONFIG.BATTERY_UPGRADE_MULT : 1)
+    * (G.research.exploreUpgrade ? CONFIG.EXPLORE_BATTERY_MULT : 1);
+}
 
 // =====================================================================
 // マップ生成（第1・第2エリアをそれぞれローカル生成してから貼り付け）
@@ -623,7 +633,7 @@ function tryPlace(type, x, y) {
   if (type === 'furnace') { b.input = {}; b.output = {}; b.job = null; b.progress = 0; }
   if (type === 'chest' || type === 'chestIn') { b.inv = {}; }
   if (type === 'antenna') { b.active = false; }
-  if (type === 'arm') { b.dir = 0; b.timer = 0; }
+  if (type === 'arm' || type === 'fastArm') { b.dir = 0; b.timer = 0; }
   if (type === 'belt' || type === 'fastBelt') { b.dir = 0; b.item = null; b.progress = 0; }
   if (type === 'splitter') { b.dir = 0; b.item = null; b.progress = 0; b.toggle = 0; }
   if (type === 'beacon') { b.active = false; }
@@ -792,7 +802,7 @@ function tickAssembler(b, dt) {
 
 function tickArm(a, dt) {
   a.timer += dt;
-  if (a.timer < CONFIG.ARM_INTERVAL) return;
+  if (a.timer < armInterval(a)) return;
   const dv = DIR_VEC[a.dir];
   const src = buildingAt(a.x - dv.x, a.y - dv.y);
   const dst = buildingAt(a.x + dv.x, a.y + dv.y);
@@ -927,7 +937,7 @@ function update(dt) {
     const node = p.path[0];
     const dx = node.x - p.x, dy = node.y - p.y;
     const dist = Math.hypot(dx, dy);
-    const step = CONFIG.MOVE_SPEED * dt;
+    const step = CONFIG.MOVE_SPEED * moveSpeedMult() * dt;
     if (Math.abs(dx) > 0.01) p.facing = dx > 0 ? 1 : -1;
     if (dist <= step) {
       p.x = node.x; p.y = node.y;
@@ -966,10 +976,11 @@ function update(dt) {
   }
 
   // --- 視界 ---
-  const px = Math.round(p.x), py = Math.round(p.y), R = Math.ceil(CONFIG.VIEW_R);
+  const viewR = effectiveViewR();
+  const px = Math.round(p.x), py = Math.round(p.y), R = Math.ceil(viewR);
   for (let dy = -R; dy <= R; dy++) for (let dx = -R; dx <= R; dx++) {
     const x = px + dx, y = py + dy;
-    if (inMap(x, y) && dx * dx + dy * dy <= CONFIG.VIEW_R * CONFIG.VIEW_R) G.explored[idx(x, y)] = 1;
+    if (inMap(x, y) && dx * dx + dy * dy <= viewR * viewR) G.explored[idx(x, y)] = 1;
   }
 
   // --- 設備 ---
@@ -1133,10 +1144,11 @@ function render() {
 
   // 現在視界外の霧（探索済みだが暗い）
   ctx.fillStyle = 'rgba(4,6,14,.55)';
+  const viewR2 = effectiveViewR() * effectiveViewR();
   for (let y = y0; y <= y1; y++) for (let x = x0; x <= x1; x++) {
     if (!inMap(x, y) || !G.explored[idx(x, y)]) continue;
     const d2 = (x - p.x) ** 2 + (y - p.y) ** 2;
-    if (d2 > CONFIG.VIEW_R * CONFIG.VIEW_R) {
+    if (d2 > viewR2) {
       const [sx, sy] = tileToScreen(x - 0.5, y - 0.5);
       ctx.fillRect(sx, sy, s + 1, s + 1);
     }
@@ -1526,7 +1538,7 @@ function drawBuilding(b, sx, sy, s) {
     drawInvOverlay(b, sx, sy, s);
   }
 }
-function a_pulse(a) { return (a.timer || 0) / CONFIG.ARM_INTERVAL > 0.75; }
+function a_pulse(a) { return (a.timer || 0) / armInterval(a) > 0.75; }
 
 // タイル上に主要アイテムのミニアイコン＋個数を常時オーバーレイ表示（開かなくても中身が分かる）
 function drawInvOverlay(b, sx, sy, s) {
