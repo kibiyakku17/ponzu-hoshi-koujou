@@ -159,6 +159,7 @@ const CONFIG = {
   ORE_MIN: 30, ORE_MAX: 55,        // 鉱脈1タイルの埋蔵量
   MINER_INTERVAL: 4,     // 採掘機の産出間隔（秒/個）
   MINER_BUFFER: 12,      // 採掘機の内部バッファ上限
+  MINER_RADIUS: 1,       // 採掘機の採掘範囲（1=中心3×3）
   SMELT_TIME: 2.5,       // 精錬1個あたりの時間（秒）
   FURNACE_IN_CAP: 20,    // 精錬炉の投入スロット上限（種類ごと）
   FURNACE_OUT_CAP: 20,   // 精錬炉の完成品スロット上限（種類ごと）
@@ -181,8 +182,16 @@ const CONFIG = {
 /* ▲▲▲ 調整パラメータここまで ▲▲▲ */
 
 // ---- タイル種別 ----
-const T_PLAIN = 0, T_ROCK = 1, T_IRON = 2, T_STONE = 3, T_CRYSTAL = 4;
-const ORE_ITEM = { [T_IRON]: 'ironOre', [T_STONE]: 'stone', [T_CRYSTAL]: 'crystal' };
+const T_PLAIN = 0, T_ROCK = 1, T_IRON = 2, T_STONE = 3, T_CRYSTAL = 4, T_COPPER = 5;
+const ORE_ITEM = { [T_IRON]: 'ironOre', [T_STONE]: 'stone', [T_CRYSTAL]: 'crystal', [T_COPPER]: 'copperOre' };
+
+// ---- 4方向ベクトル（E,S,W,N の順・時計回り。canvas回転角 = index*90°と一致） ----
+const DIR_VEC = [
+  { x: 1, y: 0, n: '→' },
+  { x: 0, y: 1, n: '↓' },
+  { x: -1, y: 0, n: '←' },
+  { x: 0, y: -1, n: '↑' },
+];
 
 // ---- アイテム定義 ----
 const ITEMS = {
@@ -192,6 +201,9 @@ const ITEMS = {
   ironPlate: { name: '鉄板',     color: '#e8b34b' },
   stoneBlock:{ name: '石ブロック', color: '#cfd6de' },
   part:      { name: '部品',     color: '#7fb2ff' },
+  copperOre: { name: '銅鉱石',   color: '#ff9248' },
+  copperWire:{ name: '銅線',     color: '#e2703a' },
+  circuit:   { name: '回路',     color: '#8fe0a0' },
 };
 
 // ---- 設備定義 ----
@@ -440,7 +452,14 @@ function tryPlace(type, x, y) {
   if (Math.round(G.player.x) === x && Math.round(G.player.y) === y) { toast('ロボの足元には置けない', 'warn'); return; }
   const t = G.tiles[idx(x, y)];
   if (type === 'miner') {
-    if (!ORE_ITEM[t]) { toast('採掘機は鉱脈の上に置く', 'warn'); return; }
+    if (t === T_ROCK) { toast('岩の上には置けない', 'warn'); return; }
+    let hasOre = false;
+    const R = CONFIG.MINER_RADIUS;
+    for (let dy = -R; dy <= R && !hasOre; dy++) for (let dx = -R; dx <= R; dx++) {
+      const nx = x + dx, ny = y + dy;
+      if (inMap(nx, ny) && ORE_ITEM[G.tiles[idx(nx, ny)]] && G.ore[idx(nx, ny)] > 0) { hasOre = true; break; }
+    }
+    if (!hasOre) { toast(`採掘機は鉱脈から${R}マス以内に置く`, 'warn'); return; }
   } else {
     if (t === T_ROCK) { toast('岩の上には置けない', 'warn'); return; }
     if (ORE_ITEM[t]) { toast('鉱脈の上に置けるのは採掘機だけ', 'warn'); return; }
@@ -479,33 +498,105 @@ function payCostRefund(cost) { for (const [k, v] of Object.entries(cost)) invAdd
 // =====================================================================
 // 設備の自動処理
 // =====================================================================
-function furnaceAccepts(item) { return item === 'ironOre' || item === 'stone'; }
-const SMELT_OUT = { ironOre: 'ironPlate', stone: 'stoneBlock' };
+const SMELT_OUT = { ironOre: 'ironPlate', stone: 'stoneBlock', copperOre: 'copperWire' };
+function furnaceAccepts(item) { return !!SMELT_OUT[item]; }
+
+// ---- 設備の入出力（採掘機バッファ／精錬炉の投入出力／保管箱／ベルト、共通操作） ----
+function firstKey(obj) { const ks = Object.keys(obj); return ks.length ? ks[0] : null; }
+function bldPeekOutput(b) {
+  if (b.type === 'chest') return firstKey(b.inv);
+  if (b.type === 'furnace') return firstKey(b.output);
+  if (b.type === 'miner') return firstKey(b.buffer);
+  if (b.type === 'belt') return b.item;
+  return null;
+}
+function bldRemoveOne(b, item) {
+  if (b.type === 'chest') invAdd(b.inv, item, -1);
+  else if (b.type === 'furnace') invAdd(b.output, item, -1);
+  else if (b.type === 'miner') invAdd(b.buffer, item, -1);
+  else if (b.type === 'belt') { b.item = null; b.progress = 0; }
+}
+function bldCanInsert(b, item) {
+  if (b.type === 'chest') return invTotal(b.inv) < CONFIG.CHEST_CAP;
+  if (b.type === 'furnace') return furnaceAccepts(item) && invCount(b.input, item) < CONFIG.FURNACE_IN_CAP;
+  if (b.type === 'belt') return !b.item;
+  return false;
+}
+function bldInsert(b, item) {
+  if (b.type === 'chest') invAdd(b.inv, item, 1);
+  else if (b.type === 'furnace') invAdd(b.input, item, 1);
+  else if (b.type === 'belt') { b.item = item; b.progress = 0; }
+}
 
 function tickMachines(dt) {
   for (const b of Object.values(G.buildings)) {
     if (b.type === 'miner') tickMiner(b, dt);
     else if (b.type === 'furnace') tickFurnace(b, dt);
+    else if (b.type === 'arm') tickArm(b, dt);
+    else if (b.type === 'belt') tickBelt(b, dt);
   }
 }
 
-function tickMiner(b, dt) {
-  const i = idx(b.x, b.y);
-  if (G.ore[i] <= 0) return;                       // 鉱脈が尽きた
-  const item = ORE_ITEM[G.tiles[i]];
+function tickArm(a, dt) {
+  a.timer += dt;
+  if (a.timer < CONFIG.ARM_INTERVAL) return;
+  const dv = DIR_VEC[a.dir];
+  const src = buildingAt(a.x - dv.x, a.y - dv.y);
+  const dst = buildingAt(a.x + dv.x, a.y + dv.y);
+  if (!src || !dst) return;
+  const item = bldPeekOutput(src);
   if (!item) return;
+  if (!bldCanInsert(dst, item)) return;
+  bldRemoveOne(src, item);
+  bldInsert(dst, item);
+  a.timer = 0;
+  markDirty();
+}
+
+function tickBelt(b, dt) {
+  if (!b.item) return;
+  if (b.progress < 1) b.progress = Math.min(1, b.progress + dt / CONFIG.BELT_TIME);
+  if (b.progress >= 1) {
+    const dv = DIR_VEC[b.dir];
+    const nb = buildingAt(b.x + dv.x, b.y + dv.y);
+    if (nb && nb.type === 'belt' && !nb.item) {
+      nb.item = b.item; nb.progress = 0;
+      b.item = null; b.progress = 0;
+      markDirty();
+    }
+  }
+}
+
+// 採掘機の中心から半径MINER_RADIUS内にある、まだ残量のある鉱脈タイル一覧
+function minerOreTiles(b) {
+  const list = [];
+  const R = CONFIG.MINER_RADIUS;
+  for (let dy = -R; dy <= R; dy++) for (let dx = -R; dx <= R; dx++) {
+    const nx = b.x + dx, ny = b.y + dy;
+    if (!inMap(nx, ny)) continue;
+    const t = G.tiles[idx(nx, ny)];
+    if (ORE_ITEM[t] && G.ore[idx(nx, ny)] > 0) list.push({ x: nx, y: ny, item: ORE_ITEM[t] });
+  }
+  return list;
+}
+
+function tickMiner(b, dt) {
+  const veins = minerOreTiles(b);
+  if (veins.length === 0) { b.depleted = true; return; }   // 範囲内の鉱脈が尽きた
+  b.depleted = false;
   b.timer += dt;
   if (b.timer < CONFIG.MINER_INTERVAL) return;
+  // 範囲内の鉱脈を順番に採掘（ラウンドロビン）
+  const cursor = (b.cursor || 0) % veins.length;
+  const vein = veins[cursor];
+  b.cursor = (cursor + 1) % veins.length;
+  const item = vein.item;
   // 受け渡し先を探す（隣接の精錬炉→保管箱→内部バッファ）
   let placed = false;
-  for (const [dx, dy] of [[1, 0], [-1, 0], [0, 1], [0, -1]]) {
-    const nb = buildingAt(b.x + dx, b.y + dy);
-    if (!nb) continue;
-    if (nb.type === 'furnace' && furnaceAccepts(item) && invCount(nb.input, item) < CONFIG.FURNACE_IN_CAP) {
-      invAdd(nb.input, item, 1); placed = true; break;
-    }
-    if (nb.type === 'chest' && invTotal(nb.inv) < CONFIG.CHEST_CAP) {
-      invAdd(nb.inv, item, 1); placed = true; break;
+  for (const dv of DIR_VEC) {
+    const nb = buildingAt(b.x + dv.x, b.y + dv.y);
+    if (nb && (nb.type === 'furnace' || nb.type === 'chest') && bldCanInsert(nb, item)) {
+      bldInsert(nb, item); placed = true; break;
     }
   }
   if (!placed) {
@@ -513,14 +604,15 @@ function tickMiner(b, dt) {
     invAdd(b.buffer, item, 1);
   }
   b.timer = 0;
-  G.ore[i]--;
-  if (G.ore[i] <= 0) G.tiles[i] = T_PLAIN;
+  const vi = idx(vein.x, vein.y);
+  G.ore[vi]--;
+  if (G.ore[vi] <= 0) G.tiles[vi] = T_PLAIN;
   markDirty();
 }
 
 function tickFurnace(b, dt) {
   if (!b.job) {
-    for (const src of ['ironOre', 'stone']) {
+    for (const src of Object.keys(SMELT_OUT)) {
       const out = SMELT_OUT[src];
       if (invCount(b.input, src) > 0 && invCount(b.output, out) < CONFIG.FURNACE_OUT_CAP) {
         invAdd(b.input, src, -1);
@@ -876,8 +968,7 @@ function drawBuilding(b, sx, sy, s) {
     ctx.fillRect(sx + s / 2 - u * 0.4, sy + u * 3, u * 0.9, u * 1);
     ctx.fillRect(sx + s / 2 - u * 0.8, sy + u * 3.8, u * 0.9, u * 1);
   } else if (b.type === 'miner') {
-    const i = idx(b.x, b.y);
-    const working = G.ore[i] > 0 && invTotal(b.buffer) < CONFIG.MINER_BUFFER;
+    const working = !b.depleted && invTotal(b.buffer) < CONFIG.MINER_BUFFER;
     const drill = working ? Math.abs(Math.sin(G.time * 8)) * u : 0;
     ctx.fillStyle = '#7a4a22';
     ctx.fillRect(sx + u, sy + u * 2, s - u * 2, s - u * 3);
@@ -893,6 +984,15 @@ function drawBuilding(b, sx, sy, s) {
     // ランプ
     ctx.fillStyle = working ? '#5ee6c8' : '#ff6b81';
     ctx.fillRect(sx + s - u * 2.2, sy + u * 1.6, u * 0.9, u * 0.9);
+    // 範囲内の鉱脈を掘りつくした → 停止表示
+    if (b.depleted) {
+      ctx.fillStyle = 'rgba(10,10,20,.5)';
+      ctx.fillRect(sx, sy, s, s);
+      ctx.fillStyle = '#ff6b81';
+      ctx.font = `bold ${Math.round(u * 2.2)}px sans-serif`;
+      ctx.textAlign = 'center';
+      ctx.fillText('×', sx + s / 2, sy + s / 2 + u * 0.7);
+    }
   } else if (b.type === 'furnace') {
     ctx.fillStyle = '#5a3a3a';
     ctx.fillRect(sx + u, sy + u, s - u * 2, s - u * 1.5);
@@ -1073,15 +1173,17 @@ function openBuilding(b, keep) {
       <span class="cost">バッテリーが切れるとここへ強制帰還（資源の一部を失う）。</span></div></div>`;
   }
   else if (b.type === 'miner') {
-    const i = idx(b.x, b.y);
-    const veinItem = ORE_ITEM[G.tiles[i]];
+    const veins = minerOreTiles(b);
     const bufTotal = invTotal(b.buffer);
-    html = `<h2>⛏️ 採掘機<button class="close-x">✕</button></h2>
-      <div class="row"><div class="grow">鉱脈：${veinItem ? ITEMS[veinItem].name + '（残り ' + G.ore[i] + '）' : '掘りつくした'}</div></div>
+    const veinSummary = veins.length
+      ? veins.map(v => ITEMS[v.item].name + '（残' + G.ore[idx(v.x, v.y)] + '）').join('　')
+      : null;
+    html = `<h2>⛏️ 採掘機（中心${CONFIG.MINER_RADIUS * 2 + 1}×${CONFIG.MINER_RADIUS * 2 + 1}）<button class="close-x">✕</button></h2>
+      <div class="row"><div class="grow">${veinSummary ? '採掘中：' + veinSummary : '⚠️ 範囲内の鉱脈をすべて掘りつくした（停止中）'}</div></div>
       <div class="row"><div class="grow">内部バッファ：${bufTotal}/${CONFIG.MINER_BUFFER}<br>
         <span class="cost">${Object.entries(b.buffer).map(([k, v]) => ITEMS[k].name + '×' + v).join('　') || 'からっぽ'}</span></div>
         <button class="btn primary" id="pb-collect" ${bufTotal ? '' : 'disabled'}>回収する</button></div>
-      <div class="row"><span class="cost">隣に保管箱か精錬炉を置くと自動で受け渡すよ</span></div>` + removeBtn;
+      <div class="row"><span class="cost">隣接の保管箱・精錬炉へ自動受け渡し。アームで離れた設備にも搬送できるよ</span></div>` + removeBtn;
   }
   else if (b.type === 'furnace') {
     const prog = b.job ? Math.round(b.progress / CONFIG.SMELT_TIME * 100) : 0;
