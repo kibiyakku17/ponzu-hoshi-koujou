@@ -278,6 +278,10 @@ const BUILDINGS = {
   beacon:    { name: '誘導ビーコン', icon: '🛰️', desc: 'アンテナ起動後の最終目標。起動すると迎えの船に位置を知らせる。' },
   assembler: { name: '組立機', icon: '⚙️', desc: 'レシピを選んで自動クラフト。材料は隣接/アーム経由で搬入、完成品はアームで搬出。' },
   lab:       { name: '研究所', icon: '🔬', desc: '研究パックを消費して研究を進める。研究メニューから対象を選ぶ。' },
+  splitter:  { name: '分配器', icon: '↗️', desc: 'ベルト上で使う簡易スプリッタ。受け取ったアイテムを2方向へ交互に振り分ける。設置後タップで90度回転。' },
+  chestIn:   { name: '搬入口付き保管箱', icon: '📥', desc: 'ベルトから直接受け入れできる保管箱の上位版。容量は通常箱と同じ。' },
+  fastBelt:  { name: '高速ベルト', icon: '⏩', desc: '通常のベルトの2倍の速度で運ぶ。設置後タップで90度回転。ドラッグで連続設置。' },
+  minerMk2:  { name: '採掘機Mk2', icon: '⛏️', desc: '採掘範囲5×5、速度1.5倍の上位採掘機。' },
 };
 
 const SAVE_KEY = 'ponzu_hoshi_koujou_v1';
@@ -346,9 +350,14 @@ function walkable(x, y) {
   const b = buildingAt(x, y);
   if (!b) return true;
   if (b.type === 'gate') return b.repaired;   // 修理済みゲートだけ通行可
-  if (b.type === 'belt') return true;         // ベルトの上は歩ける（長いラインで行き来を塞がないように）
+  if (isBeltLike(b.type)) return true;        // ベルト系の上は歩ける（長いラインで行き来を塞がないように）
   return false;
 }
+// ベルト・高速ベルト・分配器は「単一アイテムを乗せて隣へ渡す」という共通の作法を持つ
+function isBeltLike(type) { return type === 'belt' || type === 'fastBelt' || type === 'splitter'; }
+function beltTime(b) { return b.type === 'fastBelt' ? CONFIG.BELT_TIME / CONFIG.FAST_BELT_SPEED_MULT : CONFIG.BELT_TIME; }
+function minerRadius(b) { return b.type === 'minerMk2' ? CONFIG.MINER_MK2_RADIUS : CONFIG.MINER_RADIUS; }
+function minerInterval(b) { return b.type === 'minerMk2' ? CONFIG.MINER_INTERVAL / CONFIG.MINER_MK2_SPEED_MULT : CONFIG.MINER_INTERVAL; }
 function invCount(inv, item) { return inv[item] || 0; }
 function invAdd(inv, item, n) { inv[item] = (inv[item] || 0) + n; if (inv[item] <= 0) delete inv[item]; }
 function invTotal(inv) { return Object.values(inv).reduce((a, b) => a + b, 0); }
@@ -590,10 +599,10 @@ function tryPlace(type, x, y) {
   if (buildingAt(x, y)) { toast('すでに設備がある', 'warn'); return; }
   if (Math.round(G.player.x) === x && Math.round(G.player.y) === y) { toast('ロボの足元には置けない', 'warn'); return; }
   const t = G.tiles[idx(x, y)];
-  if (type === 'miner') {
+  if (type === 'miner' || type === 'minerMk2') {
     if (t === T_ROCK) { toast('岩の上には置けない', 'warn'); return; }
     let hasOre = false;
-    const R = CONFIG.MINER_RADIUS;
+    const R = type === 'minerMk2' ? CONFIG.MINER_MK2_RADIUS : CONFIG.MINER_RADIUS;
     for (let dy = -R; dy <= R && !hasOre; dy++) for (let dx = -R; dx <= R; dx++) {
       const nx = x + dx, ny = y + dy;
       if (inMap(nx, ny) && ORE_ITEM[G.tiles[idx(nx, ny)]] && G.ore[idx(nx, ny)] > 0) { hasOre = true; break; }
@@ -610,12 +619,13 @@ function tryPlace(type, x, y) {
 
   payCost(cost);
   const b = { type, x, y };
-  if (type === 'miner') { b.timer = 0; b.buffer = {}; }
+  if (type === 'miner' || type === 'minerMk2') { b.timer = 0; b.buffer = {}; }
   if (type === 'furnace') { b.input = {}; b.output = {}; b.job = null; b.progress = 0; }
-  if (type === 'chest') { b.inv = {}; }
+  if (type === 'chest' || type === 'chestIn') { b.inv = {}; }
   if (type === 'antenna') { b.active = false; }
   if (type === 'arm') { b.dir = 0; b.timer = 0; }
-  if (type === 'belt') { b.dir = 0; b.item = null; b.progress = 0; }
+  if (type === 'belt' || type === 'fastBelt') { b.dir = 0; b.item = null; b.progress = 0; }
+  if (type === 'splitter') { b.dir = 0; b.item = null; b.progress = 0; b.toggle = 0; }
   if (type === 'beacon') { b.active = false; }
   if (type === 'assembler') { b.input = {}; b.output = {}; b.job = null; b.progress = 0; b.recipeOut = null; }
   if (type === 'lab') { b.input = {}; b.currentTech = null; b.consumed = {}; b.job = null; b.progress = 0; }
@@ -650,22 +660,22 @@ function furnaceAccepts(item) { return !!SMELT_OUT[item]; }
 // ---- 設備の入出力（採掘機バッファ／精錬炉の投入出力／保管箱／ベルト、共通操作） ----
 function firstKey(obj) { const ks = Object.keys(obj); return ks.length ? ks[0] : null; }
 function bldPeekOutput(b) {
-  if (b.type === 'chest') return firstKey(b.inv);
+  if (b.type === 'chest' || b.type === 'chestIn') return firstKey(b.inv);
   if (b.type === 'furnace') return firstKey(b.output);
-  if (b.type === 'miner') return firstKey(b.buffer);
+  if (b.type === 'miner' || b.type === 'minerMk2') return firstKey(b.buffer);
   if (b.type === 'assembler') return firstKey(b.output);
-  if (b.type === 'belt') return b.item;
+  if (isBeltLike(b.type)) return b.item;
   return null;
 }
 function bldRemoveOne(b, item) {
-  if (b.type === 'chest') invAdd(b.inv, item, -1);
+  if (b.type === 'chest' || b.type === 'chestIn') invAdd(b.inv, item, -1);
   else if (b.type === 'furnace') invAdd(b.output, item, -1);
-  else if (b.type === 'miner') invAdd(b.buffer, item, -1);
+  else if (b.type === 'miner' || b.type === 'minerMk2') invAdd(b.buffer, item, -1);
   else if (b.type === 'assembler') invAdd(b.output, item, -1);
-  else if (b.type === 'belt') { b.item = null; b.progress = 0; }
+  else if (isBeltLike(b.type)) { b.item = null; b.progress = 0; }
 }
 function bldCanInsert(b, item) {
-  if (b.type === 'chest') return invTotal(b.inv) < CONFIG.CHEST_CAP;
+  if (b.type === 'chest' || b.type === 'chestIn') return invTotal(b.inv) < CONFIG.CHEST_CAP;
   if (b.type === 'furnace') return furnaceAccepts(item) && invCount(b.input, item) < CONFIG.FURNACE_IN_CAP;
   if (b.type === 'assembler') {
     const recipe = assemblerRecipe(b);
@@ -680,15 +690,15 @@ function bldCanInsert(b, item) {
     const consumed = (b.consumed && b.consumed[item]) || 0;
     return consumed + invCount(b.input, item) < need && invCount(b.input, item) < CONFIG.LAB_IN_CAP;
   }
-  if (b.type === 'belt') return !b.item;
+  if (isBeltLike(b.type)) return !b.item;
   return false;
 }
 function bldInsert(b, item) {
-  if (b.type === 'chest') invAdd(b.inv, item, 1);
+  if (b.type === 'chest' || b.type === 'chestIn') invAdd(b.inv, item, 1);
   else if (b.type === 'furnace') invAdd(b.input, item, 1);
   else if (b.type === 'assembler') invAdd(b.input, item, 1);
   else if (b.type === 'lab') invAdd(b.input, item, 1);
-  else if (b.type === 'belt') { b.item = item; b.progress = 0; }
+  else if (isBeltLike(b.type)) { b.item = item; b.progress = 0; }
 }
 // 中身プレビュー用：設備が持つ在庫系プロパティ(buffer/input/output/inv)をまとめて集計
 function bldOverlayInv(b) {
@@ -702,12 +712,13 @@ function bldOverlayInv(b) {
 
 function tickMachines(dt) {
   for (const b of Object.values(G.buildings)) {
-    if (b.type === 'miner') tickMiner(b, dt);
+    if (b.type === 'miner' || b.type === 'minerMk2') tickMiner(b, dt);
     else if (b.type === 'furnace') tickFurnace(b, dt);
     else if (b.type === 'assembler') tickAssembler(b, dt);
     else if (b.type === 'lab') tickLab(b, dt);
-    else if (b.type === 'arm') tickArm(b, dt);
-    else if (b.type === 'belt') tickBelt(b, dt);
+    else if (b.type === 'arm' || b.type === 'fastArm') tickArm(b, dt);
+    else if (b.type === 'belt' || b.type === 'fastBelt') tickBelt(b, dt);
+    else if (b.type === 'splitter') tickSplitter(b, dt);
   }
 }
 
@@ -797,22 +808,49 @@ function tickArm(a, dt) {
 
 function tickBelt(b, dt) {
   if (!b.item) return;
-  if (b.progress < 1) b.progress = Math.min(1, b.progress + dt / CONFIG.BELT_TIME);
+  if (b.progress < 1) b.progress = Math.min(1, b.progress + dt / beltTime(b));
   if (b.progress >= 1) {
     const dv = DIR_VEC[b.dir];
     const nb = buildingAt(b.x + dv.x, b.y + dv.y);
-    if (nb && nb.type === 'belt' && !nb.item) {
+    if (nb && isBeltLike(nb.type) && !nb.item) {
       nb.item = b.item; nb.progress = 0;
+      b.item = null; b.progress = 0;
+      markDirty();
+    } else if (nb && nb.type === 'chestIn' && bldCanInsert(nb, b.item)) {
+      bldInsert(nb, b.item);
       b.item = null; b.progress = 0;
       markDirty();
     }
   }
 }
 
-// 採掘機の中心から半径MINER_RADIUS内にある、まだ残量のある鉱脈タイル一覧
+// 分配器：受け取ったアイテムを前方向／右方向へ交互に振り分ける（簡易スプリッタ）
+function tickSplitter(b, dt) {
+  if (!b.item) return;
+  if (b.progress < 1) b.progress = Math.min(1, b.progress + dt / beltTime(b));
+  if (b.progress >= 1) {
+    const outDirs = [b.dir, (b.dir + 1) % 4];
+    const order = (b.toggle || 0) % 2 === 0 ? outDirs : [outDirs[1], outDirs[0]];
+    for (const d of order) {
+      const dv = DIR_VEC[d];
+      const nb = buildingAt(b.x + dv.x, b.y + dv.y);
+      let ok = false;
+      if (nb && isBeltLike(nb.type) && !nb.item) { nb.item = b.item; nb.progress = 0; ok = true; }
+      else if (nb && nb.type === 'chestIn' && bldCanInsert(nb, b.item)) { bldInsert(nb, b.item); ok = true; }
+      if (ok) {
+        b.item = null; b.progress = 0;
+        b.toggle = ((b.toggle || 0) + 1) % 2;
+        markDirty();
+        return;
+      }
+    }
+  }
+}
+
+// 採掘機の中心から半径内にある、まだ残量のある鉱脈タイル一覧（Mk2は範囲が広い）
 function minerOreTiles(b) {
   const list = [];
-  const R = CONFIG.MINER_RADIUS;
+  const R = minerRadius(b);
   for (let dy = -R; dy <= R; dy++) for (let dx = -R; dx <= R; dx++) {
     const nx = b.x + dx, ny = b.y + dy;
     if (!inMap(nx, ny)) continue;
@@ -827,7 +865,7 @@ function tickMiner(b, dt) {
   if (veins.length === 0) { b.depleted = true; return; }   // 範囲内の鉱脈が尽きた
   b.depleted = false;
   b.timer += dt;
-  if (b.timer < CONFIG.MINER_INTERVAL) return;
+  if (b.timer < minerInterval(b)) return;
   // 範囲内の鉱脈を順番に採掘（ラウンドロビン）
   const cursor = (b.cursor || 0) % veins.length;
   const vein = veins[cursor];
@@ -837,7 +875,7 @@ function tickMiner(b, dt) {
   let placed = false;
   for (const dv of DIR_VEC) {
     const nb = buildingAt(b.x + dv.x, b.y + dv.y);
-    if (nb && (nb.type === 'furnace' || nb.type === 'chest') && bldCanInsert(nb, item)) {
+    if (nb && (nb.type === 'furnace' || nb.type === 'chest' || nb.type === 'chestIn') && bldCanInsert(nb, item)) {
       bldInsert(nb, item); placed = true; break;
     }
   }
@@ -1245,14 +1283,15 @@ function drawBuilding(b, sx, sy, s) {
     ctx.fillStyle = '#ffd94b';
     ctx.fillRect(sx + s / 2 - u * 0.4, sy + u * 3, u * 0.9, u * 1);
     ctx.fillRect(sx + s / 2 - u * 0.8, sy + u * 3.8, u * 0.9, u * 1);
-  } else if (b.type === 'miner') {
+  } else if (b.type === 'miner' || b.type === 'minerMk2') {
+    const mk2 = b.type === 'minerMk2';
     const working = !b.depleted && invTotal(b.buffer) < CONFIG.MINER_BUFFER;
     const drill = working ? Math.abs(Math.sin(G.time * 8)) * u : 0;
-    ctx.fillStyle = '#7a4a22';
+    ctx.fillStyle = mk2 ? '#2f5a52' : '#7a4a22';
     ctx.fillRect(sx + u, sy + u * 2, s - u * 2, s - u * 3);
-    ctx.fillStyle = '#e8963c';
+    ctx.fillStyle = mk2 ? '#3f9c86' : '#e8963c';
     ctx.fillRect(sx + u * 1.5, sy + u * 1.2, s - u * 3, u * 2);
-    ctx.fillStyle = '#c2762a';
+    ctx.fillStyle = mk2 ? '#2a6d5e' : '#c2762a';
     ctx.fillRect(sx + u * 2, sy + u * 3.5, s - u * 4, u * 1.4);
     // ドリル
     ctx.fillStyle = '#cfd6de';
@@ -1285,13 +1324,19 @@ function drawBuilding(b, sx, sy, s) {
     // 煙突
     ctx.fillStyle = '#463030';
     ctx.fillRect(sx + s - u * 2.6, sy - u * 0.5, u * 1.4, u * 2);
-  } else if (b.type === 'chest') {
-    ctx.fillStyle = '#6e5230';
+  } else if (b.type === 'chest' || b.type === 'chestIn') {
+    const inTake = b.type === 'chestIn';
+    ctx.fillStyle = inTake ? '#3a5568' : '#6e5230';
     ctx.fillRect(sx + u * 1.2, sy + u * 2.5, s - u * 2.4, s - u * 3.8);
-    ctx.fillStyle = '#8f6c40';
+    ctx.fillStyle = inTake ? '#4f7a8f' : '#8f6c40';
     ctx.fillRect(sx + u * 1.2, sy + u * 2.5, s - u * 2.4, u * 1.6);
     ctx.fillStyle = '#e8b34b';
     ctx.fillRect(sx + s / 2 - u * 0.5, sy + u * 3.6, u, u);
+    if (inTake) {
+      // 搬入口（上部の受け口）
+      ctx.fillStyle = '#5ee6c8';
+      ctx.fillRect(sx + u * 2, sy + u * 1.6, s - u * 4, u * 0.8);
+    }
     const fill = invTotal(b.inv) / CONFIG.CHEST_CAP;
     if (fill > 0) {
       ctx.fillStyle = '#5ee6c8';
@@ -1415,8 +1460,9 @@ function drawBuilding(b, sx, sy, s) {
       ctx.strokeStyle = `rgba(155,135,192,${1 - r2})`;
       ctx.beginPath(); ctx.arc(sx + s / 2, sy - s * 0.95, u * 1.6 + r2 * s * 1.1, 0, 7); ctx.stroke();
     }
-  } else if (b.type === 'belt') {
+  } else if (b.type === 'belt' || b.type === 'fastBelt') {
     const ang = b.dir * Math.PI / 2;
+    const fast = b.type === 'fastBelt';
     ctx.save();
     ctx.translate(sx + s / 2, sy + s / 2);
     ctx.rotate(ang);
@@ -1424,10 +1470,15 @@ function drawBuilding(b, sx, sy, s) {
     ctx.fillRect(-s * 0.45, -s * 0.45, s * 0.9, s * 0.9);
     ctx.fillStyle = '#39415f';
     for (let i = -1; i <= 1; i++) ctx.fillRect(-u * 0.5, i * u * 1.8 - u * 0.4, u, u * 0.8);
-    ctx.fillStyle = '#5ee6c8';
+    ctx.fillStyle = fast ? '#ffd94b' : '#5ee6c8';
     ctx.beginPath();
     ctx.moveTo(u * 2, 0); ctx.lineTo(u * 0.8, -u * 0.9); ctx.lineTo(u * 0.8, u * 0.9);
     ctx.closePath(); ctx.fill();
+    if (fast) {
+      ctx.beginPath();
+      ctx.moveTo(u * 3, 0); ctx.lineTo(u * 1.8, -u * 0.9); ctx.lineTo(u * 1.8, u * 0.9);
+      ctx.closePath(); ctx.fill();
+    }
     ctx.restore();
     if (b.item) {
       const dv = DIR_VEC[b.dir];
@@ -1436,7 +1487,26 @@ function drawBuilding(b, sx, sy, s) {
       ctx.fillStyle = ITEMS[b.item].color;
       ctx.fillRect(cx - u * 0.9, cy - u * 0.9, u * 1.8, u * 1.8);
     }
-  } else if (b.type === 'arm') {
+  } else if (b.type === 'splitter') {
+    const ang = b.dir * Math.PI / 2;
+    ctx.save();
+    ctx.translate(sx + s / 2, sy + s / 2);
+    ctx.rotate(ang);
+    ctx.fillStyle = '#20263f';
+    ctx.fillRect(-s * 0.45, -s * 0.45, s * 0.9, s * 0.9);
+    ctx.strokeStyle = '#a78bfa'; ctx.lineWidth = Math.max(1.5, u * 0.35);
+    ctx.beginPath();
+    ctx.moveTo(-u * 2, 0); ctx.lineTo(0, 0); ctx.lineTo(u * 2, -u * 2);
+    ctx.moveTo(0, 0); ctx.lineTo(u * 2, u * 0.2);
+    ctx.stroke();
+    ctx.fillStyle = '#a78bfa';
+    ctx.beginPath(); ctx.arc(0, 0, u * 0.7, 0, 7); ctx.fill();
+    ctx.restore();
+    if (b.item) {
+      ctx.fillStyle = ITEMS[b.item].color;
+      ctx.fillRect(sx + s / 2 - u * 0.9, sy + s / 2 - u * 0.9, u * 1.8, u * 1.8);
+    }
+  } else if (b.type === 'arm' || b.type === 'fastArm') {
     const ang = b.dir * Math.PI / 2;
     const pulse = a_pulse(b);
     ctx.save();
@@ -1444,7 +1514,7 @@ function drawBuilding(b, sx, sy, s) {
     ctx.rotate(ang);
     ctx.fillStyle = '#3a4568';
     ctx.fillRect(-u * 2.2, -u * 2.2, u * 4.4, u * 4.4);
-    ctx.fillStyle = pulse ? '#5ee6c8' : '#7fb2ff';
+    ctx.fillStyle = pulse ? '#5ee6c8' : (b.type === 'fastArm' ? '#ffd94b' : '#7fb2ff');
     ctx.fillRect(-u * 0.6, -u * 0.6, u * 3.4, u * 1.2);
     ctx.fillStyle = '#e8b34b';
     ctx.beginPath(); ctx.arc(u * 2.8, 0, u * 0.9, 0, 7); ctx.fill();
@@ -1452,7 +1522,7 @@ function drawBuilding(b, sx, sy, s) {
     ctx.beginPath(); ctx.arc(0, 0, u * 0.9, 0, 7); ctx.fill();
     ctx.restore();
   }
-  if (b.type === 'chest' || b.type === 'miner' || b.type === 'furnace' || b.type === 'assembler' || b.type === 'lab') {
+  if (['chest', 'chestIn', 'miner', 'minerMk2', 'furnace', 'assembler', 'lab'].includes(b.type)) {
     drawInvOverlay(b, sx, sy, s);
   }
 }
@@ -1494,10 +1564,10 @@ function tilesBetween(a, b) {
   return path;
 }
 function vecToDir(dx, dy) { return DIR_VEC.findIndex(d => d.x === dx && d.y === dy); }
-function paintModeActive() { return buildMode === 'belt' || eraseMode; }
+function paintModeActive() { return buildMode === 'belt' || buildMode === 'fastBelt' || eraseMode; }
 
-// ドラッグで拾った経路に沿ってベルトを連続設置。岩・鉱脈・既存設備・資材切れで停止
-function commitBeltDrag(tiles) {
+// ドラッグで拾った経路に沿ってベルト(または高速ベルト)を連続設置。岩・鉱脈・既存設備・資材切れで停止
+function commitBeltDrag(tiles, beltType) {
   let placed = 0;
   for (const t of tiles) {
     if (!G.explored[idx(t.x, t.y)]) break;
@@ -1505,13 +1575,13 @@ function commitBeltDrag(tiles) {
     if (buildingAt(t.x, t.y)) break;
     const tt = G.tiles[idx(t.x, t.y)];
     if (tt === T_ROCK || ORE_ITEM[tt]) break;
-    if (!canAfford(CONFIG.COSTS.belt)) break;
-    payCost(CONFIG.COSTS.belt);
-    G.buildings[bkey(t.x, t.y)] = { type: 'belt', x: t.x, y: t.y, dir: t.dir, item: null, progress: 0 };
+    if (!canAfford(CONFIG.COSTS[beltType])) break;
+    payCost(CONFIG.COSTS[beltType]);
+    G.buildings[bkey(t.x, t.y)] = { type: beltType, x: t.x, y: t.y, dir: t.dir, item: null, progress: 0 };
     placed++;
   }
   if (placed > 0) { markDirty(); saveGame(); }
-  toast(placed > 0 ? `ベルトを${placed}個設置した` : '設置できなかった（岩・鉱脈・設備・資材不足）', placed > 0 ? undefined : 'warn');
+  toast(placed > 0 ? `${BUILDINGS[beltType].name}を${placed}個設置した` : '設置できなかった（岩・鉱脈・設備・資材不足）', placed > 0 ? undefined : 'warn');
 }
 // ドラッグで拾った経路上の設備をまとめて撤去（拠点・ゲートはスキップして継続）
 function commitEraseDrag(tiles) {
@@ -1526,13 +1596,14 @@ function commitEraseDrag(tiles) {
 }
 
 let ptr = null;
-let dragPath = null;   // {mode:'belt'|'erase', tiles:[{x,y,dir}]} 連続設置/撤去のプレビュー
+let dragPath = null;   // {mode:'belt'|'erase', beltType, tiles:[{x,y,dir}]} 連続設置/撤去のプレビュー
 canvas.addEventListener('pointerdown', e => {
   const paint = paintModeActive();
   ptr = { id: e.pointerId, sx: e.clientX, sy: e.clientY, cx: cam.x, cy: cam.y, drag: false, paint };
   if (paint) {
     const [tx, ty] = screenToTile(e.clientX, e.clientY);
-    dragPath = { mode: buildMode === 'belt' ? 'belt' : 'erase', tiles: [{ x: tx, y: ty, dir: 0 }] };
+    const isBeltMode = buildMode === 'belt' || buildMode === 'fastBelt';
+    dragPath = { mode: isBeltMode ? 'belt' : 'erase', beltType: buildMode, tiles: [{ x: tx, y: ty, dir: 0 }] };
   }
 });
 canvas.addEventListener('pointermove', e => {
@@ -1564,7 +1635,7 @@ canvas.addEventListener('pointerup', e => {
     const [tx, ty] = screenToTile(e.clientX, e.clientY);
     onTapTile(tx, ty);
   } else if (ptr.paint && dragPath) {
-    if (dragPath.mode === 'belt') commitBeltDrag(dragPath.tiles);
+    if (dragPath.mode === 'belt') commitBeltDrag(dragPath.tiles, dragPath.beltType);
     else commitEraseDrag(dragPath.tiles);
   }
   ptr = null; dragPath = null;
@@ -1643,6 +1714,11 @@ function refreshOpenPanel() {
 // --- 建設メニュー ---
 function openBuildMenu(keep) {
   const list = ['furnace', 'assembler', 'lab', 'chest', 'workbench', 'miner', 'belt', 'arm', 'antenna'];
+  if (G.research.splitter) list.push('splitter');
+  if (G.research.inputChest) list.push('chestIn');
+  if (G.research.fastBelt) list.push('fastBelt');
+  if (G.research.minerMk2) list.push('minerMk2');
+  if (G.research.fastArm) list.push('fastArm');
   if (G.cleared) list.push('beacon');
   const rows = list.map(t => {
     const ok = canAfford(CONFIG.COSTS[t]);
@@ -1672,13 +1748,14 @@ function openBuilding(b, keep) {
       <div class="row"><div class="grow">近くにいるとバッテリーが充電される。<br>
       <span class="cost">バッテリーが切れるとここへ強制帰還（資源の一部を失う）。</span></div></div>`;
   }
-  else if (b.type === 'miner') {
+  else if (b.type === 'miner' || b.type === 'minerMk2') {
     const veins = minerOreTiles(b);
     const bufTotal = invTotal(b.buffer);
+    const R = minerRadius(b);
     const veinSummary = veins.length
       ? veins.map(v => ITEMS[v.item].name + '（残' + G.ore[idx(v.x, v.y)] + '）').join('　')
       : null;
-    html = `<h2>⛏️ 採掘機（中心${CONFIG.MINER_RADIUS * 2 + 1}×${CONFIG.MINER_RADIUS * 2 + 1}）<button class="close-x">✕</button></h2>
+    html = `<h2>${b.type === 'minerMk2' ? '⛏️ 採掘機Mk2' : '⛏️ 採掘機'}（中心${R * 2 + 1}×${R * 2 + 1}）<button class="close-x">✕</button></h2>
       <div class="row"><div class="grow">${veinSummary ? '採掘中：' + veinSummary : '⚠️ 範囲内の鉱脈をすべて掘りつくした（停止中）'}</div></div>
       <div class="row"><div class="grow">内部バッファ：${bufTotal}/${CONFIG.MINER_BUFFER}<br>
         <span class="cost">${Object.entries(b.buffer).map(([k, v]) => ITEMS[k].name + '×' + v).join('　') || 'からっぽ'}</span></div>
@@ -1754,7 +1831,7 @@ function openBuilding(b, keep) {
       ${curTech ? `<h3>研究中：${curTech.name}</h3><div class="progress"><i style="width:${prog}%"></i></div>${inRows}` : '<div class="row"><span class="cost">下から研究対象を選んでね</span></div>'}
       ${treeRows}` + removeBtn;
   }
-  else if (b.type === 'chest') {
+  else if (b.type === 'chest' || b.type === 'chestIn') {
     const total = invTotal(b.inv);
     const items = [...new Set([...Object.keys(b.inv), ...Object.keys(inv)])].filter(k => ITEMS[k]);
     const rows = items.map(k => `<div class="row">
@@ -1765,7 +1842,9 @@ function openBuilding(b, keep) {
       <button class="btn small" data-take="${k}" ${invCount(b.inv, k) ? '' : 'disabled'}>出す</button>
       <button class="btn small" data-take10="${k}" ${invCount(b.inv, k) ? '' : 'disabled'}>×10</button>
     </div>`).join('');
-    html = `<h2>📦 保管箱（${total}/${CONFIG.CHEST_CAP}）<button class="close-x">✕</button></h2>
+    const title = b.type === 'chestIn' ? '📥 搬入口付き保管箱' : '📦 保管箱';
+    const note = b.type === 'chestIn' ? '<div class="row"><span class="cost">ベルトから直接受け入れできる</span></div>' : '';
+    html = `<h2>${title}（${total}/${CONFIG.CHEST_CAP}）<button class="close-x">✕</button></h2>${note}
       ${rows || '<div class="row">アイテムがない</div>'}` + removeBtn;
   }
   else if (b.type === 'workbench') {
@@ -1795,14 +1874,21 @@ function openBuilding(b, keep) {
       ${b.active ? '' : '<div style="margin-top:12px"><button class="btn primary" id="pb-activate" style="width:100%;padding:14px;font-size:15px;">🚀 アンテナを起動する</button></div>'}` +
       (b.active ? '' : removeBtn);
   }
-  else if (b.type === 'arm') {
-    html = `<h2>🦾 アーム（向き：${DIR_VEC[b.dir].n}）<button class="close-x">✕</button></h2>
-      <div class="row"><div class="grow">後ろ側の設備/ベルトから1個取り、前（${DIR_VEC[b.dir].n}側）の設備/ベルトへ渡す。数秒に1個。</div></div>
+  else if (b.type === 'arm' || b.type === 'fastArm') {
+    const title = b.type === 'fastArm' ? '🦾 高速アーム' : '🦾 アーム';
+    html = `<h2>${title}（向き：${DIR_VEC[b.dir].n}）<button class="close-x">✕</button></h2>
+      <div class="row"><div class="grow">後ろ側の設備/ベルトから1個取り、前（${DIR_VEC[b.dir].n}側）の設備/ベルトへ渡す。</div></div>
       <div style="margin-top:10px"><button class="btn primary" id="pb-rotate" style="width:100%;padding:12px;">🔄 90度回転</button></div>` + removeBtn;
   }
-  else if (b.type === 'belt') {
-    html = `<h2>➡️ ベルト（向き：${DIR_VEC[b.dir].n}）<button class="close-x">✕</button></h2>
+  else if (b.type === 'belt' || b.type === 'fastBelt') {
+    const title = b.type === 'fastBelt' ? '⏩ 高速ベルト' : '➡️ ベルト';
+    html = `<h2>${title}（向き：${DIR_VEC[b.dir].n}）<button class="close-x">✕</button></h2>
       <div class="row"><div class="grow">乗ったアイテムを${DIR_VEC[b.dir].n}方向へ運ぶ。${b.item ? '現在：' + ITEMS[b.item].name : '空き'}</div></div>
+      <div style="margin-top:10px"><button class="btn primary" id="pb-rotate" style="width:100%;padding:12px;">🔄 90度回転</button></div>` + removeBtn;
+  }
+  else if (b.type === 'splitter') {
+    html = `<h2>↗️ 分配器（向き：${DIR_VEC[b.dir].n}）<button class="close-x">✕</button></h2>
+      <div class="row"><div class="grow">受け取ったアイテムを${DIR_VEC[b.dir].n}方向と${DIR_VEC[(b.dir + 1) % 4].n}方向へ交互に振り分ける。${b.item ? '現在：' + ITEMS[b.item].name : '空き'}</div></div>
       <div style="margin-top:10px"><button class="btn primary" id="pb-rotate" style="width:100%;padding:12px;">🔄 90度回転</button></div>` + removeBtn;
   }
   else if (b.type === 'gate') {
