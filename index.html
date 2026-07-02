@@ -167,6 +167,9 @@ const CONFIG = {
   SMELT_TIME: 2.5,       // 精錬1個あたりの時間（秒）
   FURNACE_IN_CAP: 20,    // 精錬炉の投入スロット上限（種類ごと）
   FURNACE_OUT_CAP: 20,   // 精錬炉の完成品スロット上限（種類ごと）
+  ASSEMBLER_TIME: 3,        // 組立機の1クラフトあたりの時間（秒）
+  ASSEMBLER_IN_CAP: 20,     // 組立機の投入スロット上限（材料ごと）
+  ASSEMBLER_OUT_CAP: 20,    // 組立機の完成品スロット上限
   CHEST_CAP: 60,         // 保管箱の容量（合計）
   ANTENNA_RANGE: 5,      // アンテナを設置できる拠点からの距離
   AUTOSAVE_SEC: 10,
@@ -185,6 +188,7 @@ const CONFIG = {
     belt:     { ironPlate: 1 },
     gate:     { part: 10, stoneBlock: 10 },
     beacon:   { circuit: 5, part: 10, crystal: 5 },
+    assembler:{ ironPlate: 5, part: 3 },
   },
   // クラフトレシピ（作業台）
   RECIPES: [
@@ -231,6 +235,7 @@ const BUILDINGS = {
   belt:      { name: 'ベルト', icon: '➡️', desc: '乗ったアイテムを進行方向へ運ぶ。設備への出し入れはアーム経由。設置後タップで90度回転。' },
   gate:      { name: '壊れたゲート', icon: '🚧' },
   beacon:    { name: '誘導ビーコン', icon: '🛰️', desc: 'アンテナ起動後の最終目標。起動すると迎えの船に位置を知らせる。' },
+  assembler: { name: '組立機', icon: '⚙️', desc: 'レシピを選んで自動クラフト。材料は隣接/アーム経由で搬入、完成品はアームで搬出。' },
 };
 
 const SAVE_KEY = 'ponzu_hoshi_koujou_v1';
@@ -553,6 +558,7 @@ function tryPlace(type, x, y) {
   if (type === 'arm') { b.dir = 0; b.timer = 0; }
   if (type === 'belt') { b.dir = 0; b.item = null; b.progress = 0; }
   if (type === 'beacon') { b.active = false; }
+  if (type === 'assembler') { b.input = {}; b.output = {}; b.job = null; b.progress = 0; b.recipeOut = null; }
   G.buildings[bkey(x, y)] = b;
   buildMode = null;
   updateBuildModeUI();
@@ -586,6 +592,7 @@ function bldPeekOutput(b) {
   if (b.type === 'chest') return firstKey(b.inv);
   if (b.type === 'furnace') return firstKey(b.output);
   if (b.type === 'miner') return firstKey(b.buffer);
+  if (b.type === 'assembler') return firstKey(b.output);
   if (b.type === 'belt') return b.item;
   return null;
 }
@@ -593,17 +600,23 @@ function bldRemoveOne(b, item) {
   if (b.type === 'chest') invAdd(b.inv, item, -1);
   else if (b.type === 'furnace') invAdd(b.output, item, -1);
   else if (b.type === 'miner') invAdd(b.buffer, item, -1);
+  else if (b.type === 'assembler') invAdd(b.output, item, -1);
   else if (b.type === 'belt') { b.item = null; b.progress = 0; }
 }
 function bldCanInsert(b, item) {
   if (b.type === 'chest') return invTotal(b.inv) < CONFIG.CHEST_CAP;
   if (b.type === 'furnace') return furnaceAccepts(item) && invCount(b.input, item) < CONFIG.FURNACE_IN_CAP;
+  if (b.type === 'assembler') {
+    const recipe = assemblerRecipe(b);
+    return !!(recipe && recipe.in[item] !== undefined && invCount(b.input, item) < CONFIG.ASSEMBLER_IN_CAP);
+  }
   if (b.type === 'belt') return !b.item;
   return false;
 }
 function bldInsert(b, item) {
   if (b.type === 'chest') invAdd(b.inv, item, 1);
   else if (b.type === 'furnace') invAdd(b.input, item, 1);
+  else if (b.type === 'assembler') invAdd(b.input, item, 1);
   else if (b.type === 'belt') { b.item = item; b.progress = 0; }
 }
 
@@ -611,8 +624,33 @@ function tickMachines(dt) {
   for (const b of Object.values(G.buildings)) {
     if (b.type === 'miner') tickMiner(b, dt);
     else if (b.type === 'furnace') tickFurnace(b, dt);
+    else if (b.type === 'assembler') tickAssembler(b, dt);
     else if (b.type === 'arm') tickArm(b, dt);
     else if (b.type === 'belt') tickBelt(b, dt);
+  }
+}
+
+// 組立機に選択中のレシピオブジェクトを返す（CONFIG.RECIPESからoutで検索）
+function assemblerRecipe(b) { return b.recipeOut ? CONFIG.RECIPES.find(r => r.out === b.recipeOut) : null; }
+
+function tickAssembler(b, dt) {
+  const recipe = assemblerRecipe(b);
+  if (!recipe) return; // レシピ未選択
+  if (!b.job) {
+    const hasAll = Object.entries(recipe.in).every(([k, v]) => invCount(b.input, k) >= v);
+    if (hasAll && invCount(b.output, recipe.out) < CONFIG.ASSEMBLER_OUT_CAP) {
+      for (const [k, v] of Object.entries(recipe.in)) invAdd(b.input, k, -v);
+      b.job = recipe.out; b.progress = 0;
+    }
+  }
+  if (b.job) {
+    b.progress += dt;
+    if (b.progress >= CONFIG.ASSEMBLER_TIME) {
+      const jobRecipe = CONFIG.RECIPES.find(r => r.out === b.job);
+      invAdd(b.output, b.job, jobRecipe ? jobRecipe.outN : 1);
+      b.job = null; b.progress = 0;
+      markDirty();
+    }
   }
 }
 
@@ -1146,6 +1184,29 @@ function drawBuilding(b, sx, sy, s) {
       ctx.arc(sx + s / 2, sy - s * 0.8, u * 2 + r * s * 1.2, 0, 7);
       ctx.stroke();
     }
+  } else if (b.type === 'assembler') {
+    ctx.fillStyle = '#3a4568';
+    ctx.fillRect(sx + u, sy + u, s - u * 2, s - u * 2);
+    ctx.fillStyle = '#2a3148';
+    ctx.fillRect(sx + u * 1.5, sy + u * 1.5, s - u * 3, s - u * 3);
+    const spin = b.job ? G.time * 4 : 0;
+    ctx.save();
+    ctx.translate(sx + s / 2, sy + s / 2);
+    ctx.rotate(spin);
+    ctx.fillStyle = b.job ? '#7fb2ff' : '#4a5568';
+    for (let i = 0; i < 4; i++) {
+      ctx.save(); ctx.rotate(i * Math.PI / 2);
+      ctx.fillRect(-u * 0.5, -u * 2.4, u, u * 1.1);
+      ctx.restore();
+    }
+    ctx.fillStyle = '#1c2542';
+    ctx.beginPath(); ctx.arc(0, 0, u * 1.1, 0, 7); ctx.fill();
+    ctx.restore();
+    if (!b.recipeOut) {
+      ctx.fillStyle = '#ff6b81';
+      ctx.font = `bold ${Math.round(u * 1.8)}px sans-serif`; ctx.textAlign = 'center';
+      ctx.fillText('？', sx + s / 2, sy + s - u * 0.8);
+    }
   } else if (b.type === 'gate') {
     ctx.fillStyle = '#4a5568';
     ctx.fillRect(sx + u * 0.5, sy, u * 1.2, s);
@@ -1308,7 +1369,7 @@ function refreshOpenPanel() {
 
 // --- 建設メニュー ---
 function openBuildMenu(keep) {
-  const list = ['furnace', 'chest', 'workbench', 'miner', 'belt', 'arm', 'antenna'];
+  const list = ['furnace', 'assembler', 'chest', 'workbench', 'miner', 'belt', 'arm', 'antenna'];
   if (G.cleared) list.push('beacon');
   const rows = list.map(t => {
     const ok = canAfford(CONFIG.COSTS[t]);
@@ -1368,6 +1429,30 @@ function openBuilding(b, keep) {
       <h3>完成品</h3>
       <div class="row"><div class="grow">${Object.entries(b.output).map(([k, v]) => ITEMS[k].name + '×' + v).join('　') || 'まだない'}</div>
         <button class="btn primary" id="pb-takeout" ${outTotal ? '' : 'disabled'}>取り出す</button></div>` + removeBtn;
+  }
+  else if (b.type === 'assembler') {
+    const recipe = assemblerRecipe(b);
+    const prog = b.job ? Math.round(b.progress / CONFIG.ASSEMBLER_TIME * 100) : 0;
+    const recipeRows = CONFIG.RECIPES.map(r => `<div class="row">
+        <span class="dot" style="background:${ITEMS[r.out].color}"></span>
+        <div class="grow"><b>${r.name}</b>×${r.outN}<br><span class="cost">材料：${costText(r.in)}</span></div>
+        <button class="btn ${b.recipeOut === r.out ? 'primary' : ''}" data-assembler-recipe="${r.out}">${b.recipeOut === r.out ? '選択中' : '選ぶ'}</button>
+      </div>`).join('');
+    const inRows = recipe ? Object.keys(recipe.in).map(item => {
+      const have = invCount(inv, item), cur = invCount(b.input, item);
+      return `<div class="row"><div class="grow">${ITEMS[item].name}（機内 ${cur}/${CONFIG.ASSEMBLER_IN_CAP}・所持 ${have}）</div>
+        <button class="btn small" data-in="${item}" data-n="1" ${have ? '' : 'disabled'}>入れる</button>
+        <button class="btn small" data-in="${item}" data-n="10" ${have ? '' : 'disabled'}>×10</button></div>`;
+    }).join('') : '<div class="row"><span class="cost">まずレシピを選んでね</span></div>';
+    const outTotal2 = invTotal(b.output);
+    html = `<h2>⚙️ 組立機<button class="close-x">✕</button></h2>
+      <h3>レシピ</h3>${recipeRows}
+      <h3>投入</h3>${inRows}
+      <h3>加工中 ${b.job ? '：' + ITEMS[b.job].name : ''}</h3>
+      <div class="progress"><i style="width:${prog}%"></i></div>
+      <h3>完成品</h3>
+      <div class="row"><div class="grow">${Object.entries(b.output).map(([k, v]) => ITEMS[k].name + '×' + v).join('　') || 'まだない'}</div>
+        <button class="btn primary" id="pb-takeout" ${outTotal2 ? '' : 'disabled'}>取り出す</button></div>` + removeBtn;
   }
   else if (b.type === 'chest') {
     const total = invTotal(b.inv);
@@ -1447,8 +1532,19 @@ function openBuilding(b, keep) {
   });
   panelEl.querySelectorAll('[data-in]').forEach(btn => btn.addEventListener('click', () => {
     const item = btn.dataset.in;
-    const n = Math.min(+btn.dataset.n, invCount(inv, item), CONFIG.FURNACE_IN_CAP - invCount(b.input, item));
+    const cap = b.type === 'assembler' ? CONFIG.ASSEMBLER_IN_CAP : CONFIG.FURNACE_IN_CAP;
+    const n = Math.min(+btn.dataset.n, invCount(inv, item), cap - invCount(b.input, item));
     if (n > 0) { invAdd(inv, item, -n); invAdd(b.input, item, n); markDirty(); saveGame(); }
+  }));
+  panelEl.querySelectorAll('[data-assembler-recipe]').forEach(btn => btn.addEventListener('click', () => {
+    const newRecipe = btn.dataset.assemblerRecipe;
+    if (b.recipeOut === newRecipe) return;
+    // レシピ変更時は投入済みの材料をプレイヤーへ返却（違う材料が機内に残らないように）
+    for (const [k, v] of Object.entries(b.input)) invAdd(inv, k, v);
+    b.input = {}; b.job = null; b.progress = 0;
+    b.recipeOut = newRecipe;
+    markDirty(); saveGame();
+    openBuilding(b);
   }));
   const chestMove = (k, n, toChest) => {
     if (toChest) {
