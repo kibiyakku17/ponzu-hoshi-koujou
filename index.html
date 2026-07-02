@@ -1,0 +1,1375 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
+<title>ひらけ！ほしこうじょう</title>
+<style>
+  :root{
+    --bg:#070a14;
+    --panel:#131a2e;
+    --panel2:#1c2542;
+    --line:#2e3a63;
+    --text:#e8ecff;
+    --sub:#8f9bc4;
+    --accent:#5ee6c8;
+    --warn:#ffb347;
+    --danger:#ff6b81;
+  }
+  *{margin:0;padding:0;box-sizing:border-box;-webkit-tap-highlight-color:transparent;}
+  html,body{height:100%;overflow:hidden;background:var(--bg);color:var(--text);
+    font-family:'Segoe UI','Hiragino Sans','Noto Sans JP',sans-serif;
+    touch-action:none;user-select:none;-webkit-user-select:none;}
+  #game{position:fixed;inset:0;display:block;touch-action:none;}
+
+  /* ===== HUD ===== */
+  #hud-top{position:fixed;top:env(safe-area-inset-top,0);left:0;right:0;
+    display:flex;align-items:center;gap:8px;padding:8px 10px;pointer-events:none;z-index:10;}
+  #battery-wrap{flex:0 0 auto;display:flex;align-items:center;gap:6px;
+    background:rgba(19,26,46,.88);border:1px solid var(--line);border-radius:10px;padding:6px 10px;}
+  #battery-bar{width:90px;height:12px;background:#0a0f20;border-radius:6px;overflow:hidden;border:1px solid var(--line);}
+  #battery-fill{height:100%;width:100%;background:var(--accent);transition:width .2s;}
+  #battery-txt{font-size:11px;color:var(--sub);min-width:56px;}
+  #charging{font-size:11px;color:var(--accent);display:none;}
+  .hud-btn{pointer-events:auto;background:rgba(19,26,46,.88);border:1px solid var(--line);
+    color:var(--text);border-radius:10px;width:40px;height:40px;font-size:18px;
+    display:flex;align-items:center;justify-content:center;flex:0 0 auto;}
+  .hud-btn:active{background:var(--panel2);}
+  #hud-top .spacer{flex:1;}
+
+  #quest{position:fixed;top:calc(env(safe-area-inset-top,0) + 58px);left:10px;right:10px;
+    background:rgba(19,26,46,.82);border:1px solid var(--line);border-radius:10px;
+    padding:7px 11px;font-size:12px;color:var(--text);z-index:9;pointer-events:none;line-height:1.5;}
+  #quest b{color:var(--accent);font-weight:600;}
+
+  #hud-bottom{position:fixed;bottom:env(safe-area-inset-bottom,0);left:0;right:0;
+    padding:8px 10px 10px;z-index:10;pointer-events:none;}
+  #inv-bar{display:flex;flex-wrap:wrap;gap:5px;margin-bottom:8px;}
+  .inv-chip{background:rgba(19,26,46,.88);border:1px solid var(--line);border-radius:8px;
+    padding:4px 8px;font-size:12px;display:flex;align-items:center;gap:5px;}
+  .dot{width:10px;height:10px;border-radius:2px;display:inline-block;flex:0 0 auto;}
+  #bottom-btns{display:flex;gap:8px;}
+  .big-btn{pointer-events:auto;flex:1;background:var(--panel);border:1px solid var(--line);
+    color:var(--text);border-radius:12px;padding:12px 0;font-size:15px;font-weight:600;}
+  .big-btn:active{background:var(--panel2);}
+  #cancel-build{display:none;background:#3d2030;border-color:var(--danger);color:var(--danger);}
+
+  #zoom-btns{position:fixed;right:10px;bottom:calc(env(safe-area-inset-bottom,0) + 110px);
+    display:flex;flex-direction:column;gap:8px;z-index:10;}
+
+  /* ===== パネル（ボトムシート） ===== */
+  #panel-back{position:fixed;inset:0;background:rgba(0,0,0,.45);z-index:20;display:none;}
+  #panel{position:fixed;left:0;right:0;bottom:0;max-height:72vh;overflow-y:auto;z-index:21;display:none;
+    background:var(--panel);border-top:2px solid var(--line);border-radius:18px 18px 0 0;
+    padding:14px 14px calc(env(safe-area-inset-bottom,0) + 18px);}
+  #panel h2{font-size:16px;margin-bottom:10px;color:var(--accent);display:flex;align-items:center;gap:8px;}
+  #panel h3{font-size:13px;margin:12px 0 6px;color:var(--sub);}
+  .row{display:flex;align-items:center;gap:8px;padding:7px 4px;border-bottom:1px solid #1e2745;font-size:13px;flex-wrap:wrap;}
+  .row .grow{flex:1;min-width:70px;}
+  .btn{background:var(--panel2);border:1px solid var(--line);color:var(--text);
+    border-radius:8px;padding:8px 12px;font-size:13px;}
+  .btn:active{background:#28345e;}
+  .btn.primary{background:#0e4d40;border-color:var(--accent);color:var(--accent);font-weight:600;}
+  .btn.danger{background:#3d2030;border-color:var(--danger);color:var(--danger);}
+  .btn:disabled{opacity:.35;}
+  .btn.small{padding:6px 9px;font-size:12px;}
+  .cost{font-size:11px;color:var(--sub);}
+  .cost .ng{color:var(--danger);}
+  #panel .close-x{margin-left:auto;background:none;border:none;color:var(--sub);font-size:22px;padding:2px 8px;}
+  .progress{height:8px;background:#0a0f20;border-radius:4px;overflow:hidden;border:1px solid var(--line);margin:4px 0;}
+  .progress i{display:block;height:100%;background:var(--warn);}
+  textarea{width:100%;height:90px;background:#0a0f20;color:var(--text);border:1px solid var(--line);
+    border-radius:8px;padding:8px;font-size:11px;font-family:monospace;}
+
+  /* ===== トースト ===== */
+  #toast{position:fixed;top:calc(env(safe-area-inset-top,0) + 100px);left:50%;transform:translateX(-50%);
+    background:rgba(10,15,32,.94);border:1px solid var(--accent);color:var(--text);
+    padding:9px 16px;border-radius:10px;font-size:13px;z-index:40;display:none;max-width:86vw;text-align:center;}
+  #toast.warn{border-color:var(--warn);color:var(--warn);}
+  #toast.danger{border-color:var(--danger);color:var(--danger);}
+
+  /* ===== クリア画面 ===== */
+  #clear-overlay{position:fixed;inset:0;background:#04060e;z-index:50;display:none;
+    flex-direction:column;align-items:center;justify-content:center;gap:14px;padding:20px;}
+  #clear-canvas{width:min(88vw,420px);border-radius:12px;border:1px solid var(--line);}
+  #clear-overlay h1{font-size:22px;color:var(--accent);text-align:center;}
+  #clear-overlay p{font-size:13px;color:var(--text);text-align:center;line-height:1.8;max-width:340px;}
+</style>
+</head>
+<body>
+<canvas id="game"></canvas>
+
+<div id="hud-top">
+  <div id="battery-wrap">
+    <span style="font-size:14px">🔋</span>
+    <div id="battery-bar"><div id="battery-fill"></div></div>
+    <span id="battery-txt">100%</span>
+    <span id="charging">⚡充電中</span>
+  </div>
+  <div class="spacer"></div>
+  <button class="hud-btn" id="btn-center" title="ロボへ">📍</button>
+  <button class="hud-btn" id="btn-settings" title="設定">⚙️</button>
+</div>
+
+<div id="quest"></div>
+
+<div id="zoom-btns">
+  <button class="hud-btn" id="btn-zoomin">＋</button>
+  <button class="hud-btn" id="btn-zoomout">－</button>
+</div>
+
+<div id="hud-bottom">
+  <div id="inv-bar"></div>
+  <div id="bottom-btns">
+    <button class="big-btn" id="btn-build">🔨 建設</button>
+    <button class="big-btn" id="cancel-build">✕ 設置キャンセル</button>
+  </div>
+</div>
+
+<div id="panel-back"></div>
+<div id="panel"></div>
+<div id="toast"></div>
+
+<div id="clear-overlay">
+  <canvas id="clear-canvas" width="420" height="320"></canvas>
+  <h1>救難信号 送信成功！</h1>
+  <p id="clear-msg">アンテナが起動し、信号は星の海を越えていく。<br>
+  探査ロボ・ぽん太はこの星で、迎えの船を待ちながら<br>工場をひらきつづけるのだった……。<br><br>― Phase 1 クリア！おめでとう！ ―</p>
+  <button class="btn primary" id="btn-clear-continue" style="padding:12px 30px;font-size:15px;">つづける</button>
+</div>
+
+<script>
+'use strict';
+/* =====================================================================
+ * ひらけ！ほしこうじょう Phase 1 (MVP)  - ぽんず工房
+ * 単一HTML / Canvas / localStorageセーブ
+ * =====================================================================
+ * ▼▼▼ 調整パラメータ（バランス調整はここをいじる） ▼▼▼ */
+const CONFIG = {
+  MAP: 48,               // マップ一辺タイル数
+  SEED: 20260702,        // マップ生成シード（変えると別マップ）
+  VIEW_R: 4.5,           // 視界半径（タイル）
+  MOVE_SPEED: 3.2,       // 移動速度（タイル/秒）
+  BATTERY_MAX: 100,
+  MOVE_COST: 0.55,       // 1タイル移動あたりのバッテリー消費
+  CHARGE_RATE: 22,       // 拠点付近での充電速度（/秒）
+  LOW_BATTERY: 25,       // 警告を出す残量
+  EMPTY_PENALTY: 0.2,    // バッテリー切れ時に失う資源の割合
+  MINE_PER_TAP: 1,       // 手動採掘1タップの獲得数
+  ORE_MIN: 30, ORE_MAX: 55,        // 鉱脈1タイルの埋蔵量
+  MINER_INTERVAL: 4,     // 採掘機の産出間隔（秒/個）
+  MINER_BUFFER: 12,      // 採掘機の内部バッファ上限
+  SMELT_TIME: 2.5,       // 精錬1個あたりの時間（秒）
+  FURNACE_IN_CAP: 20,    // 精錬炉の投入スロット上限（種類ごと）
+  FURNACE_OUT_CAP: 20,   // 精錬炉の完成品スロット上限（種類ごと）
+  CHEST_CAP: 60,         // 保管箱の容量（合計）
+  ANTENNA_RANGE: 5,      // アンテナを設置できる拠点からの距離
+  AUTOSAVE_SEC: 10,
+  // 設備の設置コスト
+  COSTS: {
+    furnace:  { stone: 5 },
+    chest:    { stone: 3 },
+    workbench:{ stone: 4, ironPlate: 2 },
+    miner:    { ironPlate: 4, stoneBlock: 2 },
+    antenna:  { part: 5, stoneBlock: 5, crystal: 3 },
+  },
+  // クラフトレシピ（作業台）
+  RECIPES: [
+    { out: 'part', outN: 1, in: { ironPlate: 2 }, name: '部品' },
+  ],
+};
+/* ▲▲▲ 調整パラメータここまで ▲▲▲ */
+
+// ---- タイル種別 ----
+const T_PLAIN = 0, T_ROCK = 1, T_IRON = 2, T_STONE = 3, T_CRYSTAL = 4;
+const ORE_ITEM = { [T_IRON]: 'ironOre', [T_STONE]: 'stone', [T_CRYSTAL]: 'crystal' };
+
+// ---- アイテム定義 ----
+const ITEMS = {
+  ironOre:   { name: '鉄鉱石',   color: '#c9784a' },
+  stone:     { name: '石',       color: '#9aa3ad' },
+  crystal:   { name: 'エネルギー結晶', color: '#5ee6c8' },
+  ironPlate: { name: '鉄板',     color: '#e8b34b' },
+  stoneBlock:{ name: '石ブロック', color: '#cfd6de' },
+  part:      { name: '部品',     color: '#7fb2ff' },
+};
+
+// ---- 設備定義 ----
+const BUILDINGS = {
+  base:      { name: '拠点', icon: '🏠' },
+  miner:     { name: '採掘機', icon: '⛏️', desc: '鉱脈の上に設置。数秒ごとに自動で採掘し、隣の保管箱・精錬炉へ渡す。' },
+  furnace:   { name: '精錬炉', icon: '🔥', desc: '鉄鉱石→鉄板、石→石ブロックを自動で加工する。' },
+  chest:     { name: '保管箱', icon: '📦', desc: 'アイテムをしまえる箱。採掘機の隣に置くと自動で溜まる。' },
+  workbench: { name: '作業台', icon: '🔧', desc: '手動クラフト用。鉄板から部品を作れる。' },
+  antenna:   { name: '通信アンテナ', icon: '📡', desc: '拠点の近くに設置して起動すれば救難信号を送れる！' },
+};
+
+const SAVE_KEY = 'ponzu_hoshi_koujou_v1';
+const N = CONFIG.MAP;
+
+// =====================================================================
+// 乱数（シード付き）
+// =====================================================================
+function mulberry32(seed) {
+  let a = seed >>> 0;
+  return function () {
+    a |= 0; a = (a + 0x6D2B79F5) | 0;
+    let t = Math.imul(a ^ (a >>> 15), 1 | a);
+    t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t;
+    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+  };
+}
+// タイル装飾用の決定的ハッシュ（0..1）
+function hash2(x, y, n) {
+  let h = (x * 374761393 + y * 668265263 + n * 1274126177) | 0;
+  h = Math.imul(h ^ (h >>> 13), 1103515245);
+  return ((h >>> 16) & 1023) / 1023;
+}
+
+// =====================================================================
+// ゲーム状態
+// =====================================================================
+const G = {
+  tiles: new Uint8Array(N * N),
+  ore: new Uint16Array(N * N),      // 鉱脈の残量
+  explored: new Uint8Array(N * N),
+  buildings: {},                    // "x,y" -> building object
+  base: { x: 24, y: 24 },
+  player: {
+    x: 24, y: 25,                   // タイル座標（float）
+    path: [],                       // 移動先ノード列
+    battery: CONFIG.BATTERY_MAX,
+    inv: {},
+    pending: null,                  // 到着後アクション {type,x,y}
+    facing: 1,
+  },
+  flags: {},                        // クエスト進行フラグ
+  cleared: false,
+  time: 0,
+};
+
+const idx = (x, y) => y * N + x;
+const inMap = (x, y) => x >= 0 && y >= 0 && x < N && y < N;
+const bkey = (x, y) => x + ',' + y;
+const buildingAt = (x, y) => G.buildings[bkey(x, y)];
+function walkable(x, y) {
+  return inMap(x, y) && G.tiles[idx(x, y)] !== T_ROCK && !buildingAt(x, y);
+}
+function invCount(inv, item) { return inv[item] || 0; }
+function invAdd(inv, item, n) { inv[item] = (inv[item] || 0) + n; if (inv[item] <= 0) delete inv[item]; }
+function invTotal(inv) { return Object.values(inv).reduce((a, b) => a + b, 0); }
+
+// =====================================================================
+// マップ生成
+// =====================================================================
+function genMap(seed) {
+  const rng = mulberry32(seed);
+  G.tiles.fill(T_PLAIN);
+  G.ore.fill(0);
+
+  // 岩クラスタ（ランダムウォーク）
+  for (let c = 0; c < 30; c++) {
+    let x = Math.floor(rng() * N), y = Math.floor(rng() * N);
+    const size = 4 + Math.floor(rng() * 8);
+    for (let s = 0; s < size; s++) {
+      if (inMap(x, y)) G.tiles[idx(x, y)] = T_ROCK;
+      x += Math.floor(rng() * 3) - 1; y += Math.floor(rng() * 3) - 1;
+    }
+  }
+
+  // 鉱脈を置くヘルパー
+  function placeVein(type, cx, cy, size) {
+    let x = cx, y = cy, placed = 0;
+    for (let s = 0; s < size * 3 && placed < size; s++) {
+      if (inMap(x, y) && G.tiles[idx(x, y)] === T_PLAIN) {
+        G.tiles[idx(x, y)] = type;
+        G.ore[idx(x, y)] = CONFIG.ORE_MIN + Math.floor(rng() * (CONFIG.ORE_MAX - CONFIG.ORE_MIN));
+        placed++;
+      }
+      x += Math.floor(rng() * 3) - 1; y += Math.floor(rng() * 3) - 1;
+    }
+    return placed;
+  }
+
+  // ランダム鉱脈
+  const bx = G.base.x, by = G.base.y;
+  const farFromBase = (x, y, d) => Math.hypot(x - bx, y - by) >= d;
+  for (let i = 0; i < 7; i++) placeVein(T_IRON, Math.floor(rng() * N), Math.floor(rng() * N), 4 + Math.floor(rng() * 4));
+  for (let i = 0; i < 7; i++) placeVein(T_STONE, Math.floor(rng() * N), Math.floor(rng() * N), 4 + Math.floor(rng() * 4));
+  for (let i = 0; i < 5; i++) {
+    let x, y, guard = 0;
+    do { x = Math.floor(rng() * N); y = Math.floor(rng() * N); } while (!farFromBase(x, y, 12) && ++guard < 50);
+    placeVein(T_CRYSTAL, x, y, 3 + Math.floor(rng() * 3));
+  }
+
+  // 拠点周辺を平地化
+  for (let dy = -3; dy <= 3; dy++) for (let dx = -3; dx <= 3; dx++) {
+    const x = bx + dx, y = by + dy;
+    if (inMap(x, y)) { G.tiles[idx(x, y)] = T_PLAIN; G.ore[idx(x, y)] = 0; }
+  }
+  // 拠点近くに鉄・石の鉱脈を保証
+  placeVein(T_IRON, bx - 5, by - 4, 5);
+  placeVein(T_STONE, bx + 5, by + 4, 5);
+
+  // 拠点設置
+  G.buildings = {};
+  G.buildings[bkey(bx, by)] = { type: 'base', x: bx, y: by };
+  G.player.x = bx; G.player.y = by + 1;
+}
+
+// =====================================================================
+// 経路探索（A*・4方向）
+// =====================================================================
+function findPath(sx, sy, tx, ty) {
+  if (!walkable(tx, ty)) return null;
+  const open = [{ x: sx, y: sy, g: 0, f: 0, p: null }];
+  const seen = new Map([[idx(sx, sy), 0]]);
+  let guard = 0;
+  while (open.length && ++guard < 6000) {
+    let bi = 0;
+    for (let i = 1; i < open.length; i++) if (open[i].f < open[bi].f) bi = i;
+    const cur = open.splice(bi, 1)[0];
+    if (cur.x === tx && cur.y === ty) {
+      const path = [];
+      for (let n = cur; n.p; n = n.p) path.unshift({ x: n.x, y: n.y });
+      return path;
+    }
+    for (const [dx, dy] of [[1, 0], [-1, 0], [0, 1], [0, -1]]) {
+      const nx = cur.x + dx, ny = cur.y + dy;
+      if (!walkable(nx, ny)) continue;
+      const g = cur.g + 1;
+      const k = idx(nx, ny);
+      if (seen.has(k) && seen.get(k) <= g) continue;
+      seen.set(k, g);
+      open.push({ x: nx, y: ny, g, f: g + Math.abs(tx - nx) + Math.abs(ty - ny), p: cur });
+    }
+  }
+  return null;
+}
+// 目標の隣接タイルへの経路（設備や鉱脈に近づく用）
+function findPathAdjacent(tx, ty) {
+  const p = G.player, sx = Math.round(p.x), sy = Math.round(p.y);
+  let best = null;
+  for (const [dx, dy] of [[1, 0], [-1, 0], [0, 1], [0, -1]]) {
+    const ax = tx + dx, ay = ty + dy;
+    if (!walkable(ax, ay)) continue;
+    if (ax === sx && ay === sy) return [];
+    const path = findPath(sx, sy, ax, ay);
+    if (path && (!best || path.length < best.length)) best = path;
+  }
+  return best;
+}
+
+// =====================================================================
+// プレイヤー操作
+// =====================================================================
+function playerDistTo(x, y) { return Math.hypot(G.player.x - x, G.player.y - y); }
+
+function tryMine(x, y) {
+  const t = G.tiles[idx(x, y)];
+  const item = ORE_ITEM[t];
+  if (!item || G.ore[idx(x, y)] <= 0) return;
+  G.ore[idx(x, y)] -= CONFIG.MINE_PER_TAP;
+  invAdd(G.player.inv, item, CONFIG.MINE_PER_TAP);
+  fx.push({ type: 'pop', x, y, txt: '+1 ' + ITEMS[item].name, t: 0 });
+  if (G.ore[idx(x, y)] <= 0) {
+    G.tiles[idx(x, y)] = T_PLAIN;
+    toast(ITEMS[item].name + 'の鉱脈を掘りつくした');
+  }
+  markDirty();
+}
+
+function onTapTile(x, y) {
+  if (!inMap(x, y) || !G.explored[idx(x, y)]) { return; }
+  const p = G.player;
+
+  // 設置モード
+  if (buildMode) { tryPlace(buildMode, x, y); return; }
+
+  // 設備タップ
+  const b = buildingAt(x, y);
+  if (b) {
+    if (playerDistTo(x, y) <= 1.6) { openBuilding(b); }
+    else {
+      const path = findPathAdjacent(x, y);
+      if (path) { p.path = path; p.pending = { type: 'open', x, y }; }
+      else toast('そこへは行けない', 'warn');
+    }
+    return;
+  }
+
+  // 鉱脈タップ → 近ければ採掘、遠ければ移動して採掘
+  const t = G.tiles[idx(x, y)];
+  if (ORE_ITEM[t]) {
+    if (playerDistTo(x, y) <= 1.6) { tryMine(x, y); }
+    else {
+      const path = findPath(Math.round(p.x), Math.round(p.y), x, y) || findPathAdjacent(x, y);
+      if (path) { p.path = path; p.pending = { type: 'mine', x, y }; }
+      else toast('そこへは行けない', 'warn');
+    }
+    return;
+  }
+
+  // 平地タップ → 移動
+  if (t === T_ROCK) { toast('岩は通れない', 'warn'); return; }
+  const path = findPath(Math.round(p.x), Math.round(p.y), x, y);
+  if (path) { p.path = path; p.pending = null; }
+  else toast('そこへは行けない', 'warn');
+}
+
+// =====================================================================
+// 設備の設置・撤去
+// =====================================================================
+let buildMode = null;
+
+function canAfford(cost) {
+  return Object.entries(cost).every(([k, v]) => invCount(G.player.inv, k) >= v);
+}
+function payCost(cost) { for (const [k, v] of Object.entries(cost)) invAdd(G.player.inv, k, -v); }
+function costText(cost) {
+  return Object.entries(cost).map(([k, v]) => {
+    const ok = invCount(G.player.inv, k) >= v;
+    return `<span class="${ok ? '' : 'ng'}">${ITEMS[k].name}×${v}</span>`;
+  }).join('　');
+}
+
+function tryPlace(type, x, y) {
+  const cost = CONFIG.COSTS[type];
+  if (!G.explored[idx(x, y)]) { toast('未探索の場所には置けない', 'warn'); return; }
+  if (buildingAt(x, y)) { toast('すでに設備がある', 'warn'); return; }
+  if (Math.round(G.player.x) === x && Math.round(G.player.y) === y) { toast('ロボの足元には置けない', 'warn'); return; }
+  const t = G.tiles[idx(x, y)];
+  if (type === 'miner') {
+    if (!ORE_ITEM[t]) { toast('採掘機は鉱脈の上に置く', 'warn'); return; }
+  } else {
+    if (t === T_ROCK) { toast('岩の上には置けない', 'warn'); return; }
+    if (ORE_ITEM[t]) { toast('鉱脈の上に置けるのは採掘機だけ', 'warn'); return; }
+  }
+  if (type === 'antenna' && Math.hypot(x - G.base.x, y - G.base.y) > CONFIG.ANTENNA_RANGE) {
+    toast(`アンテナは拠点から${CONFIG.ANTENNA_RANGE}マス以内に設置する`, 'warn'); return;
+  }
+  if (!canAfford(cost)) { toast('材料が足りない', 'warn'); return; }
+
+  payCost(cost);
+  const b = { type, x, y };
+  if (type === 'miner') { b.timer = 0; b.buffer = {}; }
+  if (type === 'furnace') { b.input = {}; b.output = {}; b.job = null; b.progress = 0; }
+  if (type === 'chest') { b.inv = {}; }
+  if (type === 'antenna') { b.active = false; }
+  G.buildings[bkey(x, y)] = b;
+  buildMode = null;
+  updateBuildModeUI();
+  toast(BUILDINGS[type].name + 'を設置した！');
+  markDirty(); saveGame();
+}
+
+function removeBuilding(b) {
+  // コスト返却＋中身をプレイヤーへ
+  payCostRefund(CONFIG.COSTS[b.type]);
+  for (const src of [b.buffer, b.input, b.output, b.inv]) {
+    if (src) for (const [k, v] of Object.entries(src)) invAdd(G.player.inv, k, v);
+  }
+  delete G.buildings[bkey(b.x, b.y)];
+  closePanel();
+  toast(BUILDINGS[b.type].name + 'を撤去した（材料は返却）');
+  markDirty(); saveGame();
+}
+function payCostRefund(cost) { for (const [k, v] of Object.entries(cost)) invAdd(G.player.inv, k, v); }
+
+// =====================================================================
+// 設備の自動処理
+// =====================================================================
+function furnaceAccepts(item) { return item === 'ironOre' || item === 'stone'; }
+const SMELT_OUT = { ironOre: 'ironPlate', stone: 'stoneBlock' };
+
+function tickMachines(dt) {
+  for (const b of Object.values(G.buildings)) {
+    if (b.type === 'miner') tickMiner(b, dt);
+    else if (b.type === 'furnace') tickFurnace(b, dt);
+  }
+}
+
+function tickMiner(b, dt) {
+  const i = idx(b.x, b.y);
+  if (G.ore[i] <= 0) return;                       // 鉱脈が尽きた
+  const item = ORE_ITEM[G.tiles[i]];
+  if (!item) return;
+  b.timer += dt;
+  if (b.timer < CONFIG.MINER_INTERVAL) return;
+  // 受け渡し先を探す（隣接の精錬炉→保管箱→内部バッファ）
+  let placed = false;
+  for (const [dx, dy] of [[1, 0], [-1, 0], [0, 1], [0, -1]]) {
+    const nb = buildingAt(b.x + dx, b.y + dy);
+    if (!nb) continue;
+    if (nb.type === 'furnace' && furnaceAccepts(item) && invCount(nb.input, item) < CONFIG.FURNACE_IN_CAP) {
+      invAdd(nb.input, item, 1); placed = true; break;
+    }
+    if (nb.type === 'chest' && invTotal(nb.inv) < CONFIG.CHEST_CAP) {
+      invAdd(nb.inv, item, 1); placed = true; break;
+    }
+  }
+  if (!placed) {
+    if (invTotal(b.buffer) >= CONFIG.MINER_BUFFER) return; // 満杯：待機（timerは保持）
+    invAdd(b.buffer, item, 1);
+  }
+  b.timer = 0;
+  G.ore[i]--;
+  if (G.ore[i] <= 0) G.tiles[i] = T_PLAIN;
+  markDirty();
+}
+
+function tickFurnace(b, dt) {
+  if (!b.job) {
+    for (const src of ['ironOre', 'stone']) {
+      const out = SMELT_OUT[src];
+      if (invCount(b.input, src) > 0 && invCount(b.output, out) < CONFIG.FURNACE_OUT_CAP) {
+        invAdd(b.input, src, -1);
+        b.job = out; b.progress = 0;
+        break;
+      }
+    }
+  }
+  if (b.job) {
+    b.progress += dt;
+    if (b.progress >= CONFIG.SMELT_TIME) {
+      invAdd(b.output, b.job, 1);
+      b.job = null; b.progress = 0;
+      markDirty();
+    }
+  }
+}
+
+// =====================================================================
+// 更新ループ
+// =====================================================================
+let dirty = true;
+function markDirty() { dirty = true; }
+const fx = [];   // エフェクト（+1ポップなど）
+
+function update(dt) {
+  G.time += dt;
+  const p = G.player;
+
+  // --- 移動 ---
+  if (p.path.length > 0) {
+    const node = p.path[0];
+    const dx = node.x - p.x, dy = node.y - p.y;
+    const dist = Math.hypot(dx, dy);
+    const step = CONFIG.MOVE_SPEED * dt;
+    if (Math.abs(dx) > 0.01) p.facing = dx > 0 ? 1 : -1;
+    if (dist <= step) {
+      p.x = node.x; p.y = node.y;
+      p.path.shift();
+      p.battery = Math.max(0, p.battery - CONFIG.MOVE_COST * dist);
+    } else {
+      p.x += dx / dist * step; p.y += dy / dist * step;
+      p.battery = Math.max(0, p.battery - CONFIG.MOVE_COST * step);
+    }
+    if (followCam) centerCamera(false);
+    // バッテリー警告
+    if (p.battery <= CONFIG.LOW_BATTERY && !lowWarned && p.battery > 0) {
+      lowWarned = true;
+      toast('⚠️ バッテリー残りわずか！拠点に戻って充電しよう', 'warn');
+    }
+    // バッテリー切れ → 強制帰還
+    if (p.battery <= 0) forcedReturn();
+  } else if (p.pending) {
+    const a = p.pending; p.pending = null;
+    if (playerDistTo(a.x, a.y) <= 1.6) {
+      if (a.type === 'mine') tryMine(a.x, a.y);
+      else if (a.type === 'open') { const b = buildingAt(a.x, a.y); if (b) openBuilding(b); }
+    }
+  }
+
+  // --- 充電 ---
+  const nearBase = Math.hypot(p.x - G.base.x, p.y - G.base.y) <= 1.8;
+  const chargingEl = document.getElementById('charging');
+  if (nearBase && p.battery < CONFIG.BATTERY_MAX) {
+    p.battery = Math.min(CONFIG.BATTERY_MAX, p.battery + CONFIG.CHARGE_RATE * dt);
+    chargingEl.style.display = 'inline';
+    if (p.battery > CONFIG.LOW_BATTERY) lowWarned = false;
+  } else {
+    chargingEl.style.display = 'none';
+  }
+
+  // --- 視界 ---
+  const px = Math.round(p.x), py = Math.round(p.y), R = Math.ceil(CONFIG.VIEW_R);
+  for (let dy = -R; dy <= R; dy++) for (let dx = -R; dx <= R; dx++) {
+    const x = px + dx, y = py + dy;
+    if (inMap(x, y) && dx * dx + dy * dy <= CONFIG.VIEW_R * CONFIG.VIEW_R) G.explored[idx(x, y)] = 1;
+  }
+
+  // --- 設備 ---
+  tickMachines(dt);
+
+  // --- エフェクト ---
+  for (let i = fx.length - 1; i >= 0; i--) { fx[i].t += dt; if (fx[i].t > 1) fx.splice(i, 1); }
+
+  // --- クエスト＆HUD ---
+  updateFlags();
+  if (dirty) { renderInvBar(); renderQuest(); refreshOpenPanel(); dirty = false; }
+  renderBattery();
+
+  // --- オートセーブ ---
+  autosaveT += dt;
+  if (autosaveT >= CONFIG.AUTOSAVE_SEC) { autosaveT = 0; saveGame(); }
+}
+
+let lowWarned = false;
+let autosaveT = 0;
+
+function forcedReturn() {
+  const p = G.player;
+  p.path = []; p.pending = null;
+  p.x = G.base.x; p.y = G.base.y + 1;
+  // 軽ペナルティ：資源の一部を失う
+  for (const k of Object.keys(p.inv)) {
+    const lose = Math.floor(p.inv[k] * CONFIG.EMPTY_PENALTY);
+    if (lose > 0) invAdd(p.inv, k, -lose);
+  }
+  centerCamera(true);
+  toast('🔋 バッテリー切れ！緊急帰還した（資源の一部を失った…）', 'danger');
+  lowWarned = false;
+  markDirty();
+}
+
+// =====================================================================
+// クエスト（進行ガイド）
+// =====================================================================
+const QUESTS = [
+  { id: 'gather',   check: () => invCount(G.player.inv, 'ironOre') + totalEverMined('ironOre') >= 1 && invCount(G.player.inv, 'stone') >= 5,
+    text: '鉱脈をタップして <b>鉄鉱石</b> と <b>石×5</b> を集めよう' },
+  { id: 'furnace',  check: () => hasBuilding('furnace'), text: '<b>精錬炉</b> を建てよう（🔨建設 → 石×5）' },
+  { id: 'plate',    check: () => everHad('ironPlate'), text: '精錬炉に <b>鉄鉱石</b> を入れて <b>鉄板</b> を作ろう' },
+  { id: 'workbench',check: () => hasBuilding('workbench'), text: '<b>作業台</b> を建てよう（石×4＋鉄板×2）' },
+  { id: 'part',     check: () => everHad('part'), text: '作業台で <b>部品</b> を作ろう（鉄板×2）' },
+  { id: 'miner',    check: () => hasBuilding('miner'), text: '<b>採掘機</b> を鉱脈の上に置いて自動化しよう（鉄板×4＋石ブロック×2）' },
+  { id: 'antenna',  check: () => hasBuilding('antenna'), text: '<b>通信アンテナ</b> を拠点の近くに建てよう（部品×5＋石ブロック×5＋結晶×3）' },
+  { id: 'activate', check: () => G.cleared, text: 'アンテナをタップして <b>起動</b> しよう！' },
+];
+function hasBuilding(type) { return Object.values(G.buildings).some(b => b.type === type); }
+function everHad(item) { return !!G.flags['had_' + item]; }
+function totalEverMined() { return 0; } // gather判定は所持数で簡易化
+function updateFlags() {
+  for (const k of ['ironPlate', 'part']) {
+    if (invCount(G.player.inv, k) > 0) {
+      if (!G.flags['had_' + k]) { G.flags['had_' + k] = true; markDirty(); }
+    }
+  }
+  for (const q of QUESTS) {
+    if (!G.flags['q_' + q.id] && q.check()) { G.flags['q_' + q.id] = true; markDirty(); }
+  }
+}
+function renderQuest() {
+  const el = document.getElementById('quest');
+  if (G.cleared) { el.innerHTML = '🎉 クリア済み！自由に工場をひろげよう'; return; }
+  const q = QUESTS.find(q => !G.flags['q_' + q.id]);
+  el.innerHTML = q ? '🎯 ' + q.text : '🎉 全ステップ完了！';
+}
+
+// =====================================================================
+// 描画
+// =====================================================================
+const canvas = document.getElementById('game');
+const ctx = canvas.getContext('2d');
+let cam = { x: 24, y: 25 };   // 画面中心のタイル座標
+let tilePx = 40;              // ズーム（1タイルのピクセルサイズ）
+let followCam = true;
+let dpr = 1, vw = 0, vh = 0;
+
+function resize() {
+  dpr = Math.min(window.devicePixelRatio || 1, 2);
+  vw = window.innerWidth; vh = window.innerHeight;
+  canvas.width = vw * dpr; canvas.height = vh * dpr;
+  canvas.style.width = vw + 'px'; canvas.style.height = vh + 'px';
+  ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+  ctx.imageSmoothingEnabled = false;
+}
+window.addEventListener('resize', resize);
+
+function centerCamera(snap) {
+  if (snap) { cam.x = G.player.x; cam.y = G.player.y; }
+  else {
+    cam.x += (G.player.x - cam.x) * 0.15;
+    cam.y += (G.player.y - cam.y) * 0.15;
+  }
+}
+function tileToScreen(x, y) {
+  return [vw / 2 + (x - cam.x) * tilePx, vh / 2 + (y - cam.y) * tilePx];
+}
+function screenToTile(sx, sy) {
+  return [Math.round(cam.x + (sx - vw / 2) / tilePx), Math.round(cam.y + (sy - vh / 2) / tilePx)];
+}
+
+function render() {
+  ctx.fillStyle = '#04060e';
+  ctx.fillRect(0, 0, vw, vh);
+  // 宇宙背景の星
+  for (let i = 0; i < 60; i++) {
+    const sx = (hash2(i, 7, 1) * vw), sy = (hash2(i, 13, 2) * vh);
+    ctx.globalAlpha = 0.25 + 0.5 * hash2(i, 3, 3);
+    ctx.fillStyle = '#cfd8ff';
+    ctx.fillRect(sx, sy, 2, 2);
+  }
+  ctx.globalAlpha = 1;
+
+  const s = tilePx;
+  const x0 = Math.floor(cam.x - vw / 2 / s) - 1, x1 = Math.ceil(cam.x + vw / 2 / s) + 1;
+  const y0 = Math.floor(cam.y - vh / 2 / s) - 1, y1 = Math.ceil(cam.y + vh / 2 / s) + 2;
+  const p = G.player;
+
+  for (let y = y0; y <= y1; y++) {
+    for (let x = x0; x <= x1; x++) {
+      if (!inMap(x, y)) continue;
+      const [sx, sy] = tileToScreen(x - 0.5, y - 0.5);
+      if (!G.explored[idx(x, y)]) continue;  // 未探索＝背景（霧）のまま
+      drawTile(x, y, sx, sy, s);
+    }
+  }
+
+  // 経路プレビュー
+  ctx.fillStyle = 'rgba(94,230,200,.5)';
+  for (const node of p.path) {
+    const [sx, sy] = tileToScreen(node.x, node.y);
+    ctx.beginPath(); ctx.arc(sx, sy, s * 0.08, 0, 7); ctx.fill();
+  }
+
+  // 設備（y順に描く）
+  const blds = Object.values(G.buildings).filter(b => G.explored[idx(b.x, b.y)]).sort((a, b) => a.y - b.y);
+  let playerDrawn = false;
+  for (const b of blds) {
+    if (!playerDrawn && p.y < b.y) { drawPlayer(s); playerDrawn = true; }
+    const [sx, sy] = tileToScreen(b.x - 0.5, b.y - 0.5);
+    drawBuilding(b, sx, sy, s);
+  }
+  if (!playerDrawn) drawPlayer(s);
+
+  // 現在視界外の霧（探索済みだが暗い）
+  ctx.fillStyle = 'rgba(4,6,14,.55)';
+  for (let y = y0; y <= y1; y++) for (let x = x0; x <= x1; x++) {
+    if (!inMap(x, y) || !G.explored[idx(x, y)]) continue;
+    const d2 = (x - p.x) ** 2 + (y - p.y) ** 2;
+    if (d2 > CONFIG.VIEW_R * CONFIG.VIEW_R) {
+      const [sx, sy] = tileToScreen(x - 0.5, y - 0.5);
+      ctx.fillRect(sx, sy, s + 1, s + 1);
+    }
+  }
+
+  // 設置モードのガイド
+  if (buildMode) {
+    ctx.strokeStyle = 'rgba(94,230,200,.7)'; ctx.lineWidth = 2;
+    if (buildMode === 'antenna') {
+      const [bx, by] = tileToScreen(G.base.x, G.base.y);
+      ctx.beginPath(); ctx.arc(bx, by, CONFIG.ANTENNA_RANGE * s, 0, 7); ctx.stroke();
+    }
+  }
+
+  // エフェクト（+1ポップ）
+  ctx.textAlign = 'center'; ctx.font = 'bold 13px sans-serif';
+  for (const f of fx) {
+    const [sx, sy] = tileToScreen(f.x, f.y);
+    ctx.globalAlpha = 1 - f.t;
+    ctx.fillStyle = '#5ee6c8';
+    ctx.fillText(f.txt, sx, sy - s * 0.5 - f.t * 22);
+  }
+  ctx.globalAlpha = 1;
+}
+
+// --- タイル描画（ドット絵風・コード生成） ---
+function drawTile(x, y, sx, sy, s) {
+  const t = G.tiles[idx(x, y)];
+  const u = s / 8;
+  // 地面ベース
+  ctx.fillStyle = (x + y) % 2 ? '#191d33' : '#1b1f37';
+  ctx.fillRect(sx, sy, s + 1, s + 1);
+  // 地面の砂粒
+  for (let i = 0; i < 3; i++) {
+    const hx = hash2(x, y, i * 2), hy = hash2(x, y, i * 2 + 1);
+    ctx.fillStyle = hash2(x, y, i + 9) > 0.5 ? '#232849' : '#141728';
+    ctx.fillRect(sx + hx * (s - u), sy + hy * (s - u), u, u);
+  }
+  if (t === T_ROCK) {
+    ctx.fillStyle = '#3c4560';
+    ctx.fillRect(sx + u * 0.5, sy + u, s - u, s - u * 1.5);
+    ctx.fillStyle = '#4d5878';
+    ctx.fillRect(sx + u, sy + u * 1.5, s - u * 3, u * 2);
+    ctx.fillStyle = '#2a3148';
+    ctx.fillRect(sx + u * 1.5, sy + s - u * 2.5, s - u * 3, u * 1.5);
+  } else if (ORE_ITEM[t]) {
+    const colors = { [T_IRON]: ['#c9784a', '#8f4f2c'], [T_STONE]: ['#aab3bf', '#6f7885'], [T_CRYSTAL]: ['#5ee6c8', '#2a9d84'] };
+    const [c1, c2] = colors[t];
+    const rich = G.ore[idx(x, y)] / CONFIG.ORE_MAX;   // 残量で粒の数を変える
+    const lumps = Math.max(2, Math.round(2 + rich * 3));
+    for (let i = 0; i < lumps; i++) {
+      const hx = u + hash2(x, y, 20 + i) * (s - u * 3.5);
+      const hy = u + hash2(x, y, 30 + i) * (s - u * 3.5);
+      if (t === T_CRYSTAL) {
+        // 結晶はひし形＋光
+        ctx.fillStyle = c2;
+        ctx.fillRect(sx + hx, sy + hy + u * 0.5, u * 1.6, u * 0.8);
+        ctx.fillStyle = c1;
+        ctx.fillRect(sx + hx + u * 0.35, sy + hy - u * 0.3, u * 0.9, u * 1.8);
+      } else {
+        ctx.fillStyle = c2;
+        ctx.fillRect(sx + hx, sy + hy, u * 2, u * 1.6);
+        ctx.fillStyle = c1;
+        ctx.fillRect(sx + hx + u * 0.3, sy + hy + u * 0.25, u * 1.2, u * 0.8);
+      }
+    }
+  }
+}
+
+// --- プレイヤー（探査ロボ）描画 ---
+function drawPlayer(s) {
+  const p = G.player;
+  const [sx, sy] = tileToScreen(p.x - 0.5, p.y - 0.5);
+  const u = s / 8;
+  const bob = Math.sin(G.time * 6) * (p.path.length ? u * 0.4 : u * 0.12);
+  ctx.save();
+  ctx.translate(sx + s / 2, sy + s / 2 + bob);
+  ctx.scale(p.facing, 1);
+  // キャタピラ
+  ctx.fillStyle = '#2a3148';
+  ctx.fillRect(-u * 2.6, u * 1.6, u * 5.2, u * 1.4);
+  ctx.fillStyle = '#454f6e';
+  ctx.fillRect(-u * 2.2, u * 1.9, u * 0.8, u * 0.8);
+  ctx.fillRect(-u * 0.4, u * 1.9, u * 0.8, u * 0.8);
+  ctx.fillRect(u * 1.4, u * 1.9, u * 0.8, u * 0.8);
+  // ボディ
+  ctx.fillStyle = '#dde4f5';
+  ctx.fillRect(-u * 2.2, -u * 1.6, u * 4.4, u * 3.2);
+  ctx.fillStyle = '#b8c2dd';
+  ctx.fillRect(-u * 2.2, u * 0.8, u * 4.4, u * 0.8);
+  // バイザー（目）
+  ctx.fillStyle = '#0a0f20';
+  ctx.fillRect(-u * 1.4, -u * 1, u * 3.2, u * 1.3);
+  ctx.fillStyle = '#5ee6c8';
+  ctx.fillRect(u * 0.4, -u * 0.8, u * 1, u * 0.9);
+  // アンテナ
+  ctx.fillStyle = '#8f9bc4';
+  ctx.fillRect(u * 1.4, -u * 2.8, u * 0.4, u * 1.2);
+  ctx.fillStyle = '#ff6b81';
+  ctx.fillRect(u * 1.2, -u * 3.3, u * 0.8, u * 0.7);
+  ctx.restore();
+}
+
+// --- 設備描画 ---
+function drawBuilding(b, sx, sy, s) {
+  const u = s / 8;
+  if (b.type === 'base') {
+    // 着陸パッド＋ドーム
+    ctx.fillStyle = '#2c3554';
+    ctx.fillRect(sx - u, sy - u, s + u * 2, s + u * 2);
+    ctx.fillStyle = '#3a4568';
+    ctx.fillRect(sx, sy, s, s);
+    ctx.fillStyle = '#5ee6c8';
+    ctx.fillRect(sx + u * 0.5, sy + u * 0.5, u, u);
+    ctx.fillRect(sx + s - u * 1.5, sy + u * 0.5, u, u);
+    ctx.fillRect(sx + u * 0.5, sy + s - u * 1.5, u, u);
+    ctx.fillRect(sx + s - u * 1.5, sy + s - u * 1.5, u, u);
+    ctx.fillStyle = '#cdd8f5';
+    ctx.fillRect(sx + u * 1.5, sy + u * 0.5, s - u * 3, s - u * 2.5);
+    ctx.fillStyle = '#9fb2e5';
+    ctx.fillRect(sx + u * 2, sy + u * 1.2, s - u * 4, u * 1.2);
+    // ⚡マーク
+    ctx.fillStyle = '#ffd94b';
+    ctx.fillRect(sx + s / 2 - u * 0.4, sy + u * 3, u * 0.9, u * 1);
+    ctx.fillRect(sx + s / 2 - u * 0.8, sy + u * 3.8, u * 0.9, u * 1);
+  } else if (b.type === 'miner') {
+    const i = idx(b.x, b.y);
+    const working = G.ore[i] > 0 && invTotal(b.buffer) < CONFIG.MINER_BUFFER;
+    const drill = working ? Math.abs(Math.sin(G.time * 8)) * u : 0;
+    ctx.fillStyle = '#7a4a22';
+    ctx.fillRect(sx + u, sy + u * 2, s - u * 2, s - u * 3);
+    ctx.fillStyle = '#e8963c';
+    ctx.fillRect(sx + u * 1.5, sy + u * 1.2, s - u * 3, u * 2);
+    ctx.fillStyle = '#c2762a';
+    ctx.fillRect(sx + u * 2, sy + u * 3.5, s - u * 4, u * 1.4);
+    // ドリル
+    ctx.fillStyle = '#cfd6de';
+    ctx.fillRect(sx + s / 2 - u * 0.5, sy + u * 4 + drill, u, u * 2.2);
+    ctx.fillStyle = '#8f99a8';
+    ctx.fillRect(sx + s / 2 - u * 0.25, sy + u * 6 + drill, u * 0.5, u);
+    // ランプ
+    ctx.fillStyle = working ? '#5ee6c8' : '#ff6b81';
+    ctx.fillRect(sx + s - u * 2.2, sy + u * 1.6, u * 0.9, u * 0.9);
+  } else if (b.type === 'furnace') {
+    ctx.fillStyle = '#5a3a3a';
+    ctx.fillRect(sx + u, sy + u, s - u * 2, s - u * 1.5);
+    ctx.fillStyle = '#7a4f4a';
+    ctx.fillRect(sx + u * 1.5, sy + u * 1.5, s - u * 3, u * 1.2);
+    // 炉の口（稼働で明滅）
+    const hot = b.job ? 0.7 + 0.3 * Math.sin(G.time * 10) : 0.15;
+    ctx.fillStyle = `rgba(255,140,50,${hot})`;
+    ctx.fillRect(sx + u * 2.5, sy + u * 4, s - u * 5, u * 2.2);
+    ctx.fillStyle = `rgba(255,220,120,${hot * 0.8})`;
+    ctx.fillRect(sx + u * 3.2, sy + u * 4.5, s - u * 6.4, u * 1.2);
+    // 煙突
+    ctx.fillStyle = '#463030';
+    ctx.fillRect(sx + s - u * 2.6, sy - u * 0.5, u * 1.4, u * 2);
+  } else if (b.type === 'chest') {
+    ctx.fillStyle = '#6e5230';
+    ctx.fillRect(sx + u * 1.2, sy + u * 2.5, s - u * 2.4, s - u * 3.8);
+    ctx.fillStyle = '#8f6c40';
+    ctx.fillRect(sx + u * 1.2, sy + u * 2.5, s - u * 2.4, u * 1.6);
+    ctx.fillStyle = '#e8b34b';
+    ctx.fillRect(sx + s / 2 - u * 0.5, sy + u * 3.6, u, u);
+    const fill = invTotal(b.inv) / CONFIG.CHEST_CAP;
+    if (fill > 0) {
+      ctx.fillStyle = '#5ee6c8';
+      ctx.fillRect(sx + u * 1.2, sy + s - u * 1.6, (s - u * 2.4) * Math.min(1, fill), u * 0.4);
+    }
+  } else if (b.type === 'workbench') {
+    ctx.fillStyle = '#4a5568';
+    ctx.fillRect(sx + u, sy + u * 3, s - u * 2, s - u * 4);
+    ctx.fillStyle = '#5f6e88';
+    ctx.fillRect(sx + u * 0.6, sy + u * 2.4, s - u * 1.2, u * 1.4);
+    // 工具
+    ctx.fillStyle = '#e8b34b';
+    ctx.fillRect(sx + u * 1.6, sy + u * 1.4, u * 1.6, u * 0.7);
+    ctx.fillStyle = '#7fb2ff';
+    ctx.fillRect(sx + s - u * 3.4, sy + u * 1.2, u * 0.8, u * 1.1);
+  } else if (b.type === 'antenna') {
+    // マスト（タイルの上にはみ出して描く）
+    ctx.fillStyle = '#39415f';
+    ctx.fillRect(sx + u * 1.5, sy + s - u * 2, s - u * 3, u * 1.5);
+    ctx.fillStyle = '#8f9bc4';
+    ctx.fillRect(sx + s / 2 - u * 0.5, sy - s * 0.8, u, s * 1.6);
+    ctx.fillRect(sx + s / 2 - u * 2, sy - s * 0.3, u * 4, u * 0.5);
+    // パラボラ
+    ctx.fillStyle = '#cfd8ff';
+    ctx.beginPath();
+    ctx.arc(sx + s / 2, sy - s * 0.8, u * 2.2, Math.PI * 0.9, Math.PI * 2.1);
+    ctx.fill();
+    ctx.fillStyle = '#ff6b81';
+    ctx.fillRect(sx + s / 2 - u * 0.4, sy - s * 0.95, u * 0.8, u * 0.8);
+    // 起動中は信号リング
+    if (b.active) {
+      const r = (G.time % 1.5) / 1.5;
+      ctx.strokeStyle = `rgba(94,230,200,${1 - r})`;
+      ctx.lineWidth = 2;
+      ctx.beginPath();
+      ctx.arc(sx + s / 2, sy - s * 0.8, u * 2 + r * s * 1.2, 0, 7);
+      ctx.stroke();
+    }
+  }
+}
+
+// =====================================================================
+// 入力（タップ／ドラッグ／ズーム）
+// =====================================================================
+let ptr = null;
+canvas.addEventListener('pointerdown', e => {
+  ptr = { id: e.pointerId, sx: e.clientX, sy: e.clientY, cx: cam.x, cy: cam.y, drag: false };
+});
+canvas.addEventListener('pointermove', e => {
+  if (!ptr || e.pointerId !== ptr.id) return;
+  const dx = e.clientX - ptr.sx, dy = e.clientY - ptr.sy;
+  if (!ptr.drag && Math.hypot(dx, dy) > 12) { ptr.drag = true; followCam = false; }
+  if (ptr.drag) {
+    cam.x = ptr.cx - dx / tilePx;
+    cam.y = ptr.cy - dy / tilePx;
+  }
+});
+canvas.addEventListener('pointerup', e => {
+  if (!ptr || e.pointerId !== ptr.id) return;
+  if (!ptr.drag) {
+    const [tx, ty] = screenToTile(e.clientX, e.clientY);
+    onTapTile(tx, ty);
+  }
+  ptr = null;
+});
+canvas.addEventListener('pointercancel', () => { ptr = null; });
+
+document.getElementById('btn-zoomin').onclick = () => { tilePx = Math.min(64, Math.round(tilePx * 1.25)); };
+document.getElementById('btn-zoomout').onclick = () => { tilePx = Math.max(16, Math.round(tilePx / 1.25)); };
+document.getElementById('btn-center').onclick = () => { followCam = true; centerCamera(true); };
+document.getElementById('btn-settings').onclick = () => openSettings();
+document.getElementById('btn-build').onclick = () => openBuildMenu();
+document.getElementById('cancel-build').onclick = () => { buildMode = null; updateBuildModeUI(); };
+
+function updateBuildModeUI() {
+  document.getElementById('cancel-build').style.display = buildMode ? 'block' : 'none';
+  document.getElementById('btn-build').style.display = buildMode ? 'none' : 'block';
+  if (buildMode) toast(BUILDINGS[buildMode].name + 'を置く場所をタップ');
+}
+
+// =====================================================================
+// HUD
+// =====================================================================
+function renderBattery() {
+  const p = G.player;
+  const pct = Math.round(p.battery / CONFIG.BATTERY_MAX * 100);
+  const fill = document.getElementById('battery-fill');
+  fill.style.width = pct + '%';
+  fill.style.background = pct <= 25 ? 'var(--danger)' : pct <= 50 ? 'var(--warn)' : 'var(--accent)';
+  document.getElementById('battery-txt').textContent = pct + '%';
+}
+function renderInvBar() {
+  const el = document.getElementById('inv-bar');
+  const inv = G.player.inv;
+  const keys = Object.keys(ITEMS).filter(k => invCount(inv, k) > 0);
+  el.innerHTML = keys.length
+    ? keys.map(k => `<span class="inv-chip"><span class="dot" style="background:${ITEMS[k].color}"></span>${ITEMS[k].name} <b>${inv[k]}</b></span>`).join('')
+    : '<span class="inv-chip" style="color:var(--sub)">もちもの：なし（鉱脈をタップで採掘）</span>';
+}
+
+// =====================================================================
+// パネルUI
+// =====================================================================
+const panelEl = document.getElementById('panel');
+const panelBack = document.getElementById('panel-back');
+let openedPanel = null;   // {kind, b} 再描画用
+panelBack.onclick = closePanel;
+
+function showPanel(html) {
+  panelEl.innerHTML = html;
+  panelEl.style.display = 'block';
+  panelBack.style.display = 'block';
+  panelEl.querySelector('.close-x')?.addEventListener('click', closePanel);
+}
+function closePanel() {
+  panelEl.style.display = 'none';
+  panelBack.style.display = 'none';
+  openedPanel = null;
+}
+function refreshOpenPanel() {
+  if (!openedPanel) return;
+  if (openedPanel.kind === 'building') {
+    const b = openedPanel.b;
+    if (!G.buildings[bkey(b.x, b.y)]) { closePanel(); return; }
+    openBuilding(b, true);
+  } else if (openedPanel.kind === 'build') openBuildMenu(true);
+}
+
+// --- 建設メニュー ---
+function openBuildMenu(keep) {
+  const rows = ['furnace', 'chest', 'workbench', 'miner', 'antenna'].map(t => {
+    const ok = canAfford(CONFIG.COSTS[t]);
+    return `<div class="row">
+      <div class="grow"><b>${BUILDINGS[t].icon} ${BUILDINGS[t].name}</b><br>
+        <span class="cost">${costText(CONFIG.COSTS[t])}</span><br>
+        <span class="cost">${BUILDINGS[t].desc}</span></div>
+      <button class="btn ${ok ? 'primary' : ''}" data-build="${t}" ${ok ? '' : 'disabled'}>設置</button>
+    </div>`;
+  }).join('');
+  showPanel(`<h2>🔨 建設メニュー<button class="close-x">✕</button></h2>${rows}`);
+  openedPanel = { kind: 'build' };
+  panelEl.querySelectorAll('[data-build]').forEach(btn => {
+    btn.onclick = () => { buildMode = btn.dataset.build; closePanel(); updateBuildModeUI(); };
+  });
+}
+
+// --- 設備パネル ---
+function openBuilding(b, keep) {
+  openedPanel = { kind: 'building', b };
+  const inv = G.player.inv;
+  let html = '';
+  const removeBtn = `<div style="margin-top:14px"><button class="btn danger" id="pb-remove">🗑 撤去する（材料は返却）</button></div>`;
+
+  if (b.type === 'base') {
+    html = `<h2>🏠 拠点<button class="close-x">✕</button></h2>
+      <div class="row"><div class="grow">近くにいるとバッテリーが充電される。<br>
+      <span class="cost">バッテリーが切れるとここへ強制帰還（資源の一部を失う）。</span></div></div>`;
+  }
+  else if (b.type === 'miner') {
+    const i = idx(b.x, b.y);
+    const veinItem = ORE_ITEM[G.tiles[i]];
+    const bufTotal = invTotal(b.buffer);
+    html = `<h2>⛏️ 採掘機<button class="close-x">✕</button></h2>
+      <div class="row"><div class="grow">鉱脈：${veinItem ? ITEMS[veinItem].name + '（残り ' + G.ore[i] + '）' : '掘りつくした'}</div></div>
+      <div class="row"><div class="grow">内部バッファ：${bufTotal}/${CONFIG.MINER_BUFFER}<br>
+        <span class="cost">${Object.entries(b.buffer).map(([k, v]) => ITEMS[k].name + '×' + v).join('　') || 'からっぽ'}</span></div>
+        <button class="btn primary" id="pb-collect" ${bufTotal ? '' : 'disabled'}>回収する</button></div>
+      <div class="row"><span class="cost">隣に保管箱か精錬炉を置くと自動で受け渡すよ</span></div>` + removeBtn;
+  }
+  else if (b.type === 'furnace') {
+    const prog = b.job ? Math.round(b.progress / CONFIG.SMELT_TIME * 100) : 0;
+    const inRow = (item) => {
+      const have = invCount(inv, item), cur = invCount(b.input, item);
+      return `<div class="row"><div class="grow">${ITEMS[item].name}（炉内 ${cur}/${CONFIG.FURNACE_IN_CAP}・所持 ${have}）</div>
+        <button class="btn small" data-in="${item}" data-n="1" ${have ? '' : 'disabled'}>入れる</button>
+        <button class="btn small" data-in="${item}" data-n="10" ${have ? '' : 'disabled'}>×10</button></div>`;
+    };
+    const outTotal = invTotal(b.output);
+    html = `<h2>🔥 精錬炉<button class="close-x">✕</button></h2>
+      <h3>投入（鉄鉱石→鉄板／石→石ブロック）</h3>
+      ${inRow('ironOre')}${inRow('stone')}
+      <h3>加工中 ${b.job ? '：' + ITEMS[b.job].name : ''}</h3>
+      <div class="progress"><i style="width:${prog}%"></i></div>
+      <h3>完成品</h3>
+      <div class="row"><div class="grow">${Object.entries(b.output).map(([k, v]) => ITEMS[k].name + '×' + v).join('　') || 'まだない'}</div>
+        <button class="btn primary" id="pb-takeout" ${outTotal ? '' : 'disabled'}>取り出す</button></div>` + removeBtn;
+  }
+  else if (b.type === 'chest') {
+    const total = invTotal(b.inv);
+    const items = [...new Set([...Object.keys(b.inv), ...Object.keys(inv)])].filter(k => ITEMS[k]);
+    const rows = items.map(k => `<div class="row">
+      <span class="dot" style="background:${ITEMS[k].color}"></span>
+      <div class="grow">${ITEMS[k].name}<br><span class="cost">所持 ${invCount(inv, k)}｜箱 ${invCount(b.inv, k)}</span></div>
+      <button class="btn small" data-put="${k}" ${invCount(inv, k) ? '' : 'disabled'}>入れる</button>
+      <button class="btn small" data-put10="${k}" ${invCount(inv, k) ? '' : 'disabled'}>×10</button>
+      <button class="btn small" data-take="${k}" ${invCount(b.inv, k) ? '' : 'disabled'}>出す</button>
+      <button class="btn small" data-take10="${k}" ${invCount(b.inv, k) ? '' : 'disabled'}>×10</button>
+    </div>`).join('');
+    html = `<h2>📦 保管箱（${total}/${CONFIG.CHEST_CAP}）<button class="close-x">✕</button></h2>
+      ${rows || '<div class="row">アイテムがない</div>'}` + removeBtn;
+  }
+  else if (b.type === 'workbench') {
+    const rows = CONFIG.RECIPES.map((r, i) => {
+      const ok = canAfford(r.in);
+      return `<div class="row">
+        <span class="dot" style="background:${ITEMS[r.out].color}"></span>
+        <div class="grow"><b>${r.name}</b>×${r.outN}<br><span class="cost">材料：${costText(r.in)}</span></div>
+        <button class="btn ${ok ? 'primary' : ''}" data-craft="${i}" ${ok ? '' : 'disabled'}>作る</button>
+        <button class="btn small" data-craft5="${i}" ${ok ? '' : 'disabled'}>×5</button>
+      </div>`;
+    }).join('');
+    html = `<h2>🔧 作業台<button class="close-x">✕</button></h2>${rows}` + removeBtn;
+  }
+  else if (b.type === 'antenna') {
+    html = `<h2>📡 通信アンテナ<button class="close-x">✕</button></h2>
+      <div class="row"><div class="grow">${b.active ? '起動中。救難信号を送信している…' : '準備完了！起動すれば救難信号を送信できる。'}</div></div>
+      ${b.active ? '' : '<div style="margin-top:12px"><button class="btn primary" id="pb-activate" style="width:100%;padding:14px;font-size:15px;">🚀 アンテナを起動する</button></div>'}` +
+      (b.active ? '' : removeBtn);
+  }
+  showPanel(html);
+  openedPanel = { kind: 'building', b };
+
+  // ボタン配線
+  panelEl.querySelector('#pb-remove')?.addEventListener('click', () => removeBuilding(b));
+  panelEl.querySelector('#pb-collect')?.addEventListener('click', () => {
+    for (const [k, v] of Object.entries(b.buffer)) invAdd(inv, k, v);
+    b.buffer = {}; markDirty(); saveGame();
+  });
+  panelEl.querySelector('#pb-takeout')?.addEventListener('click', () => {
+    for (const [k, v] of Object.entries(b.output)) invAdd(inv, k, v);
+    b.output = {}; markDirty(); saveGame();
+  });
+  panelEl.querySelectorAll('[data-in]').forEach(btn => btn.addEventListener('click', () => {
+    const item = btn.dataset.in;
+    const n = Math.min(+btn.dataset.n, invCount(inv, item), CONFIG.FURNACE_IN_CAP - invCount(b.input, item));
+    if (n > 0) { invAdd(inv, item, -n); invAdd(b.input, item, n); markDirty(); saveGame(); }
+  }));
+  const chestMove = (k, n, toChest) => {
+    if (toChest) {
+      n = Math.min(n, invCount(inv, k), CONFIG.CHEST_CAP - invTotal(b.inv));
+      if (n > 0) { invAdd(inv, k, -n); invAdd(b.inv, k, n); }
+    } else {
+      n = Math.min(n, invCount(b.inv, k));
+      if (n > 0) { invAdd(b.inv, k, -n); invAdd(inv, k, n); }
+    }
+    markDirty(); saveGame();
+  };
+  panelEl.querySelectorAll('[data-put]').forEach(btn => btn.addEventListener('click', () => chestMove(btn.dataset.put, 1, true)));
+  panelEl.querySelectorAll('[data-put10]').forEach(btn => btn.addEventListener('click', () => chestMove(btn.dataset.put10, 10, true)));
+  panelEl.querySelectorAll('[data-take]').forEach(btn => btn.addEventListener('click', () => chestMove(btn.dataset.take, 1, false)));
+  panelEl.querySelectorAll('[data-take10]').forEach(btn => btn.addEventListener('click', () => chestMove(btn.dataset.take10, 10, false)));
+  const craft = (ri, times) => {
+    const r = CONFIG.RECIPES[ri];
+    for (let i = 0; i < times; i++) {
+      if (!canAfford(r.in)) break;
+      payCost(r.in);
+      invAdd(inv, r.out, r.outN);
+    }
+    markDirty(); saveGame();
+  };
+  panelEl.querySelectorAll('[data-craft]').forEach(btn => btn.addEventListener('click', () => craft(+btn.dataset.craft, 1)));
+  panelEl.querySelectorAll('[data-craft5]').forEach(btn => btn.addEventListener('click', () => craft(+btn.dataset.craft5, 5)));
+  panelEl.querySelector('#pb-activate')?.addEventListener('click', () => activateAntenna(b));
+}
+
+// --- 設定 ---
+function openSettings() {
+  showPanel(`<h2>⚙️ 設定<button class="close-x">✕</button></h2>
+    <div class="row"><div class="grow">セーブデータ（JSON）</div>
+      <button class="btn" id="st-export">書き出す</button>
+      <button class="btn" id="st-import">読み込む</button></div>
+    <textarea id="st-json" placeholder="「書き出す」でここにJSONが出ます。読み込みはここに貼り付けて「読み込む」"></textarea>
+    <div class="row" style="margin-top:8px"><div class="grow">手動セーブ</div><button class="btn" id="st-save">セーブ</button></div>
+    <div class="row"><div class="grow">最初からやり直す<br><span class="cost">セーブデータを消して新しい星へ</span></div>
+      <button class="btn danger" id="st-reset">リセット</button></div>
+    <h3>あそびかた</h3>
+    <div class="row"><span class="cost">
+      ・タップで移動／鉱脈タップで採掘（近くにいるとき）<br>
+      ・ドラッグでスクロール、＋－でズーム、📍でロボの位置へ<br>
+      ・バッテリーに注意！拠点の近くで自動充電<br>
+      ・🔨建設から設備を置いて、アンテナ起動でクリア！</span></div>`);
+  openedPanel = null;
+  panelEl.querySelector('#st-export').onclick = () => {
+    panelEl.querySelector('#st-json').value = JSON.stringify(makeSave());
+    toast('書き出した！全選択してコピーしてね');
+  };
+  panelEl.querySelector('#st-import').onclick = () => {
+    try {
+      const data = JSON.parse(panelEl.querySelector('#st-json').value);
+      if (!data || data.v !== 1) throw new Error('bad');
+      applySave(data);
+      localStorage.setItem(SAVE_KEY, JSON.stringify(data));
+      closePanel();
+      toast('セーブデータを読み込んだ！');
+    } catch { toast('読み込み失敗…JSONを確認してね', 'danger'); }
+  };
+  panelEl.querySelector('#st-save').onclick = () => { saveGame(); toast('セーブした！'); };
+  panelEl.querySelector('#st-reset').onclick = () => {
+    if (confirm('セーブデータを消して最初からやり直す？')) {
+      localStorage.removeItem(SAVE_KEY);
+      location.reload();
+    }
+  };
+}
+
+// =====================================================================
+// クリア演出
+// =====================================================================
+function activateAntenna(b) {
+  b.active = true;
+  G.cleared = true;
+  closePanel();
+  saveGame();
+  drawClearArt();
+  document.getElementById('clear-overlay').style.display = 'flex';
+}
+document.getElementById('btn-clear-continue').onclick = () => {
+  document.getElementById('clear-overlay').style.display = 'none';
+  markDirty();
+};
+
+function drawClearArt() {
+  const c = document.getElementById('clear-canvas');
+  const x = c.getContext('2d');
+  const W = c.width, H = c.height;
+  // 夜空グラデ
+  const grad = x.createLinearGradient(0, 0, 0, H);
+  grad.addColorStop(0, '#050716'); grad.addColorStop(1, '#1a1440');
+  x.fillStyle = grad; x.fillRect(0, 0, W, H);
+  // 星
+  for (let i = 0; i < 90; i++) {
+    x.globalAlpha = 0.3 + hash2(i, 5, 8) * 0.7;
+    x.fillStyle = i % 7 === 0 ? '#ffd94b' : '#dfe8ff';
+    x.fillRect(hash2(i, 1, 4) * W, hash2(i, 2, 6) * H * 0.72, 2, 2);
+  }
+  x.globalAlpha = 1;
+  // 遠くの惑星
+  x.fillStyle = '#7a5aa8'; x.beginPath(); x.arc(W * 0.82, H * 0.2, 26, 0, 7); x.fill();
+  x.fillStyle = '#9377c2'; x.beginPath(); x.arc(W * 0.79, H * 0.18, 20, 0, 7); x.fill();
+  // 地面
+  x.fillStyle = '#241f45'; x.beginPath();
+  x.ellipse(W / 2, H * 1.25, W * 0.85, H * 0.55, 0, 0, 7); x.fill();
+  // アンテナ
+  const ax = W * 0.5, ay = H * 0.78;
+  x.fillStyle = '#39415f'; x.fillRect(ax - 22, ay - 8, 44, 14);
+  x.fillStyle = '#8f9bc4'; x.fillRect(ax - 4, ay - 90, 8, 86);
+  x.fillRect(ax - 20, ay - 50, 40, 5);
+  x.fillStyle = '#cfd8ff'; x.beginPath(); x.arc(ax, ay - 92, 22, Math.PI * 0.95, Math.PI * 2.05); x.fill();
+  x.fillStyle = '#ff6b81'; x.fillRect(ax - 4, ay - 104, 8, 8);
+  // 信号
+  for (let i = 1; i <= 3; i++) {
+    x.strokeStyle = `rgba(94,230,200,${1 - i * 0.25})`;
+    x.lineWidth = 3;
+    x.beginPath(); x.arc(ax, ay - 100, 14 + i * 16, Math.PI * 1.15, Math.PI * 1.85); x.stroke();
+  }
+  // ロボ（ばんざい）
+  const rx = W * 0.3, ry = H * 0.8, u = 5;
+  x.fillStyle = '#2a3148'; x.fillRect(rx - u * 2.6, ry + u * 1.6, u * 5.2, u * 1.4);
+  x.fillStyle = '#dde4f5'; x.fillRect(rx - u * 2.2, ry - u * 1.6, u * 4.4, u * 3.2);
+  x.fillStyle = '#0a0f20'; x.fillRect(rx - u * 1.4, ry - u, u * 2.8, u * 1.3);
+  x.fillStyle = '#5ee6c8'; x.fillRect(rx - u * 0.9, ry - u * 0.8, u * 0.8, u * 0.9);
+  x.fillRect(rx + u * 0.3, ry - u * 0.8, u * 0.8, u * 0.9);
+  x.fillStyle = '#dde4f5';  // 両腕ばんざい
+  x.fillRect(rx - u * 3.4, ry - u * 3.4, u, u * 2.4);
+  x.fillRect(rx + u * 2.4, ry - u * 3.4, u, u * 2.4);
+  x.fillStyle = '#ff6b81'; x.fillRect(rx - u * 0.4, ry - u * 3.4, u * 0.8, u * 0.7);
+  x.fillStyle = '#8f9bc4'; x.fillRect(rx - u * 0.2, ry - u * 2.8, u * 0.4, u * 1.2);
+}
+
+// =====================================================================
+// トースト
+// =====================================================================
+let toastTimer = null;
+function toast(msg, kind) {
+  const el = document.getElementById('toast');
+  el.textContent = msg;
+  el.className = kind || '';
+  el.style.display = 'block';
+  clearTimeout(toastTimer);
+  toastTimer = setTimeout(() => { el.style.display = 'none'; }, 2600);
+}
+
+// =====================================================================
+// セーブ／ロード
+// =====================================================================
+function makeSave() {
+  return {
+    v: 1,
+    seed: CONFIG.SEED,
+    tiles: Array.from(G.tiles).join(''),
+    ore: Array.from(G.ore),
+    explored: Array.from(G.explored).join(''),
+    buildings: Object.values(G.buildings),
+    player: { x: G.player.x, y: G.player.y, battery: G.player.battery, inv: G.player.inv },
+    flags: G.flags,
+    cleared: G.cleared,
+    time: G.time,
+  };
+}
+function saveGame() {
+  try { localStorage.setItem(SAVE_KEY, JSON.stringify(makeSave())); } catch (e) { /* 容量オーバー等は無視 */ }
+}
+function applySave(d) {
+  for (let i = 0; i < N * N; i++) G.tiles[i] = +d.tiles[i];
+  G.ore.set(d.ore);
+  for (let i = 0; i < N * N; i++) G.explored[i] = +d.explored[i];
+  G.buildings = {};
+  for (const b of d.buildings) G.buildings[bkey(b.x, b.y)] = b;
+  const base = d.buildings.find(b => b.type === 'base');
+  if (base) { G.base.x = base.x; G.base.y = base.y; }
+  G.player.x = d.player.x; G.player.y = d.player.y;
+  G.player.battery = d.player.battery;
+  G.player.inv = d.player.inv || {};
+  G.player.path = []; G.player.pending = null;
+  G.flags = d.flags || {};
+  G.cleared = !!d.cleared;
+  G.time = d.time || 0;
+  buildMode = null;
+  centerCamera(true);
+  markDirty();
+}
+function loadGame() {
+  try {
+    const raw = localStorage.getItem(SAVE_KEY);
+    if (!raw) return false;
+    const d = JSON.parse(raw);
+    if (d.v !== 1) return false;
+    applySave(d);
+    return true;
+  } catch (e) { return false; }
+}
+
+// =====================================================================
+// 起動
+// =====================================================================
+function boot() {
+  resize();
+  if (!loadGame()) {
+    genMap(CONFIG.SEED);
+    toast('未知の惑星に不時着した…。まずは鉱脈をタップして資源を集めよう！');
+  }
+  centerCamera(true);
+  markDirty();
+  updateBuildModeUI();
+
+  let last = performance.now();
+  function frame(now) {
+    const dt = Math.min(0.1, (now - last) / 1000);
+    last = now;
+    update(dt);
+    render();
+    requestAnimationFrame(frame);
+  }
+  requestAnimationFrame(frame);
+}
+boot();
+</script>
+</body>
+</html>
