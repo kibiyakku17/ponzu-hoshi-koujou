@@ -206,6 +206,14 @@ const CONFIG = {
   BATTERY_UPGRADE_MULT: 1.5,                          // バッテリー拡張後の最大容量倍率
   OFFLINE_MAX_HOURS: 4,        // オフライン生産を計算する上限時間
   OFFLINE_REPORT_MIN_SEC: 30,  // これ未満の不在時間はレポートしない
+  // ---- 電力システム（Phase4） ----
+  // 稼働に電力を必要とする設備の消費量（電線は敷かず、発電機/中継塔からの無線送電で賄う）
+  POWER_USE: { miner: 2, minerMk2: 4, furnace: 3, assembler: 4, lab: 3, arm: 1, fastArm: 2, filterArm: 1 },
+  GEN_OUTPUT: 20,        // 小型発電機の発電量
+  GEN_RADIUS: 15,        // 小型発電機の送電半径（タイル）
+  GEN_FUEL_INTERVAL: 20, // 小型発電機がエネルギー結晶1個を消費するのにかかる時間（秒）
+  GEN_FUEL_CAP: 20,      // 小型発電機の燃料バッファ上限
+  RELAY_RADIUS: 15,      // 無線中継塔の中継半径（タイル）。中継塔自体は電力を消費しない
   // 設備の設置コスト（gateは修理コスト）
   COSTS: {
     furnace:  { stone: 5 },
@@ -226,6 +234,8 @@ const CONFIG = {
     fastArm:  { ironPlate: 2, part: 2, circuit: 1 },
     filterArm:{ ironPlate: 2, part: 2, circuit: 2 },
     gate2:    { part: 20, stoneBlock: 20, circuit: 10 },
+    relay:    { ironPlate: 3, part: 2 },
+    generator:{ ironPlate: 5, part: 3 },
   },
   // クラフトレシピ（作業台／組立機で共通）
   RECIPES: [
@@ -297,6 +307,8 @@ const BUILDINGS = {
   minerMk2:  { name: '採掘機Mk2', icon: '⛏️', desc: '採掘範囲5×5、速度1.5倍の上位採掘機。' },
   fastArm:   { name: '高速アーム', icon: '🦾', desc: '通常のアームの2倍の速度で動く。設置後タップで90度回転。' },
   filterArm: { name: 'フィルタアーム', icon: '🎯', desc: '指定した1種類のアイテムだけを掴む。それ以外は素通りさせる。設置後タップで対象アイテムと向きを設定。' },
+  generator: { name: '小型発電機', icon: '🔋', desc: 'エネルギー結晶を消費して周囲に電力を送る（無線・半径15マス）。研究不要ですぐ作れる。' },
+  relay:     { name: '無線中継塔', icon: '📶', desc: '発電機または他の中継塔から半径15マス以内に置くと、そこからさらに半径15マスへ電力を中継する。電力は消費しない。' },
 };
 
 const SAVE_KEY = 'ponzu_hoshi_koujou_v1';
@@ -713,7 +725,9 @@ function tryPlace(type, x, y, initDir) {
   if (type === 'beacon') { b.active = false; }
   if (type === 'assembler') { b.input = {}; b.output = {}; b.job = null; b.progress = 0; b.recipeOut = null; }
   if (type === 'lab') { b.input = {}; b.currentTech = null; b.consumed = {}; b.job = null; b.progress = 0; }
+  if (type === 'generator' || type === 'advGenerator') { b.input = {}; b.job = null; b.progress = 0; b.active = false; }
   G.buildings[bkey(x, y)] = b;
+  markPowerTopologyDirty();
   buildMode = null;
   placePreview = null;
   updateBuildModeUI();
@@ -730,6 +744,7 @@ function removeBuilding(b) {
   }
   if (b.item) invAdd(G.player.inv, b.item, 1);
   delete G.buildings[bkey(b.x, b.y)];
+  markPowerTopologyDirty();
   closePanel();
   toast(BUILDINGS[b.type].name + 'を撤去した（材料は返却）');
   markDirty(); saveGame();
@@ -775,6 +790,7 @@ function bldCanInsert(b, item) {
     const consumed = (b.consumed && b.consumed[item]) || 0;
     return consumed + invCount(b.input, item) < need && invCount(b.input, item) < CONFIG.LAB_IN_CAP;
   }
+  if (b.type === 'generator') return item === 'crystal' && invCount(b.input, item) < CONFIG.GEN_FUEL_CAP;
   if (isBeltLike(b.type)) return !b.item;
   return false;
 }
@@ -783,6 +799,7 @@ function bldInsert(b, item) {
   else if (b.type === 'furnace') invAdd(b.input, item, 1);
   else if (b.type === 'assembler') invAdd(b.input, item, 1);
   else if (b.type === 'lab') invAdd(b.input, item, 1);
+  else if (b.type === 'generator') invAdd(b.input, item, 1);
   else if (isBeltLike(b.type)) { b.item = item; b.progress = 0; }
 }
 // 中身プレビュー用：設備が持つ在庫系プロパティ(buffer/input/output/inv)をまとめて集計
@@ -796,7 +813,14 @@ function bldOverlayInv(b) {
 }
 
 function tickMachines(dt) {
+  // 発電機の燃料消費（発電の可否）を先に確定してから、電力ネットワークの需給を計算する
   for (const b of Object.values(G.buildings)) {
+    if (b.type === 'generator' || b.type === 'advGenerator') tickGenerator(b, dt);
+  }
+  tickPower();
+  for (const b of Object.values(G.buildings)) {
+    // 電力を必要とする設備は、停電中（b.powered===false）は完全停止する
+    if (CONFIG.POWER_USE[b.type] !== undefined && !b.powered) continue;
     if (b.type === 'miner' || b.type === 'minerMk2') tickMiner(b, dt);
     else if (b.type === 'furnace') tickFurnace(b, dt);
     else if (b.type === 'assembler') tickAssembler(b, dt);
@@ -805,6 +829,74 @@ function tickMachines(dt) {
     else if (b.type === 'belt' || b.type === 'fastBelt') tickBelt(b, dt);
     else if (b.type === 'splitter') tickSplitter(b, dt);
   }
+}
+
+// =====================================================================
+// 電力システム（無線送電：電線は敷かず、発電機/中継塔からの半径で届く）
+// =====================================================================
+// 発電機：燃料（結晶／アークコア）を消費し続けている間だけ発電する（精錬炉と同じ「job」パターン）
+function tickGenerator(b, dt) {
+  const fuel = b.type === 'advGenerator' ? 'arcCore' : 'crystal';
+  const interval = b.type === 'advGenerator' ? CONFIG.ADV_GEN_FUEL_INTERVAL : CONFIG.GEN_FUEL_INTERVAL;
+  if (!b.job && invCount(b.input, fuel) > 0) { invAdd(b.input, fuel, -1); b.job = fuel; b.progress = 0; }
+  if (b.job) {
+    b.progress += dt;
+    if (b.progress >= interval) {
+      b.job = null; b.progress = 0;
+      if (invCount(b.input, fuel) > 0) { invAdd(b.input, fuel, -1); b.job = fuel; b.progress = 0; }
+    }
+  }
+  b.active = !!b.job;
+}
+function isPowerNode(b) { return b.type === 'generator' || b.type === 'advGenerator' || b.type === 'relay'; }
+function powerNodeRadius(b) {
+  if (b.type === 'generator') return CONFIG.GEN_RADIUS;
+  if (b.type === 'advGenerator') return CONFIG.ADV_GEN_RADIUS;
+  if (b.type === 'relay') return CONFIG.RELAY_RADIUS;
+  return 0;
+}
+function powerNodeOutput(b) {
+  if (!b.active) return 0;
+  if (b.type === 'generator') return CONFIG.GEN_OUTPUT;
+  if (b.type === 'advGenerator') return CONFIG.ADV_GEN_OUTPUT;
+  return 0;
+}
+// 発電機・中継塔の位置関係（Union-Find）だけを対象にした「電力網」の再計算。
+// 設備の設置・撤去時にのみ呼べばよい（消費設備が増減しても網の形自体は変わらないため）
+let powerNetworks = [];
+let powerTopologyDirty = true;
+function markPowerTopologyDirty() { powerTopologyDirty = true; }
+function rebuildPowerTopology() {
+  const nodes = Object.values(G.buildings).filter(isPowerNode);
+  const parent = nodes.map((_, i) => i);
+  function find(i) { while (parent[i] !== i) { parent[i] = parent[parent[i]]; i = parent[i]; } return i; }
+  function union(i, j) { const ri = find(i), rj = find(j); if (ri !== rj) parent[ri] = rj; }
+  for (let i = 0; i < nodes.length; i++) for (let j = i + 1; j < nodes.length; j++) {
+    const d = Math.hypot(nodes[i].x - nodes[j].x, nodes[i].y - nodes[j].y);
+    if (d <= powerNodeRadius(nodes[i]) || d <= powerNodeRadius(nodes[j])) union(i, j);
+  }
+  const groups = new Map();
+  nodes.forEach((node, i) => {
+    const root = find(i);
+    if (!groups.has(root)) groups.set(root, []);
+    groups.get(root).push(node);
+  });
+  powerNetworks = [...groups.values()].map(ns => ({ nodes: ns, supply: 0, demand: 0 }));
+  powerTopologyDirty = false;
+}
+// 各設備の稼働可否（b.powered）を毎ティック確定する：
+// 供給＝ネットワーク内で現在発電中のノードの出力合計、需要＝そのネットワークが届く消費設備の消費量合計
+function tickPower() {
+  if (powerTopologyDirty) rebuildPowerTopology();
+  for (const net of powerNetworks) { net.supply = net.nodes.reduce((s, n) => s + powerNodeOutput(n), 0); net.demand = 0; }
+  const assigned = [];
+  for (const b of Object.values(G.buildings)) {
+    if (CONFIG.POWER_USE[b.type] === undefined) continue;
+    const net = powerNetworks.find(cand => cand.nodes.some(n => Math.hypot(n.x - b.x, n.y - b.y) <= powerNodeRadius(n)));
+    if (net) net.demand += CONFIG.POWER_USE[b.type];
+    assigned.push([b, net]);
+  }
+  for (const [b, net] of assigned) b.powered = !!(net && net.supply >= net.demand);
 }
 
 // 研究所：選択中の研究のコストに従い、パックを1個ずつ消費して進行する
@@ -1681,8 +1773,46 @@ function drawBuilding(b, sx, sy, s) {
       ctx.font = `bold ${Math.round(u * 1.6)}px sans-serif`; ctx.textAlign = 'center';
       ctx.fillText('？', sx + s / 2, sy + u * 2);
     }
+  } else if (b.type === 'generator' || b.type === 'advGenerator') {
+    const adv = b.type === 'advGenerator';
+    ctx.fillStyle = adv ? '#3a2f57' : '#2f3f57';
+    ctx.fillRect(sx + u, sy + u * 1.5, s - u * 2, s - u * 2.5);
+    ctx.fillStyle = adv ? '#9b6bd6' : '#5ee6c8';
+    ctx.fillRect(sx + u * 1.6, sy + u * 2, s - u * 3.2, u * 1.4);
+    ctx.fillStyle = b.active ? '#ffd94b' : '#4a5568';
+    ctx.beginPath(); ctx.arc(sx + s / 2, sy + s - u * 2, u * 0.9, 0, 7); ctx.fill();
+    if (b.active) {
+      const r = (G.time % 2) / 2;
+      ctx.strokeStyle = `rgba(${adv ? '155,107,214' : '94,230,200'},${0.5 - r * 0.5})`;
+      ctx.lineWidth = 2;
+      ctx.beginPath(); ctx.arc(sx + s / 2, sy + s / 2, u * 3 + r * s * 0.6, 0, 7); ctx.stroke();
+    }
+  } else if (b.type === 'relay') {
+    const net = powerNetworks.find(n => n.nodes.includes(b));
+    const live = !!(net && net.supply > 0);
+    ctx.fillStyle = '#39415f';
+    ctx.fillRect(sx + s / 2 - u * 0.5, sy + u, u, s - u * 1.5);
+    ctx.strokeStyle = live ? '#5ee6c8' : '#4a5568';
+    ctx.lineWidth = Math.max(1.2, u * 0.25);
+    for (let i = 0; i < 3; i++) {
+      ctx.beginPath();
+      ctx.arc(sx + s / 2, sy + u * 1.4, u * (1 + i * 0.9), Math.PI * 1.15, Math.PI * 1.85);
+      ctx.stroke();
+    }
+    ctx.fillStyle = live ? '#5ee6c8' : '#8f9bc4';
+    ctx.beginPath(); ctx.arc(sx + s / 2, sy + u * 1.4, u * 0.6, 0, 7); ctx.fill();
   }
-  if (['chest', 'chestIn', 'miner', 'minerMk2', 'furnace', 'assembler', 'lab'].includes(b.type)) {
+  // 電力切れ（停電）の視覚表示：暗くして⚡に斜線
+  if (CONFIG.POWER_USE[b.type] !== undefined && b.powered === false) {
+    ctx.fillStyle = 'rgba(10,10,20,.55)';
+    ctx.fillRect(sx, sy, s, s);
+    ctx.fillStyle = '#ffb347';
+    ctx.font = `bold ${Math.round(u * 1.8)}px sans-serif`; ctx.textAlign = 'center';
+    ctx.fillText('⚡', sx + s / 2, sy + u * 2);
+    ctx.strokeStyle = '#ff6b81'; ctx.lineWidth = Math.max(1.5, u * 0.3);
+    ctx.beginPath(); ctx.moveTo(sx + u * 0.8, sy + s - u * 0.8); ctx.lineTo(sx + s - u * 0.8, sy + u * 0.8); ctx.stroke();
+  }
+  if (['chest', 'chestIn', 'miner', 'minerMk2', 'furnace', 'assembler', 'lab', 'generator', 'advGenerator'].includes(b.type)) {
     drawInvOverlay(b, sx, sy, s);
   }
 }
@@ -1886,7 +2016,7 @@ function refreshOpenPanel() {
 const BUILD_CATEGORIES = [
   { id: 'basic', name: '🔧 基本',   items: ['miner', 'furnace', 'chest', 'workbench', 'belt', 'arm', 'antenna'] },
   { id: 'auto',  name: '⚙️ 自動化', items: ['assembler', 'lab', 'splitter', 'chestIn', 'fastBelt', 'minerMk2', 'fastArm', 'filterArm'] },
-  { id: 'power', name: '⚡ 電力',   items: [] },
+  { id: 'power', name: '⚡ 電力',   items: ['generator', 'relay'] },
   { id: 'goal',  name: '📡 進行',   items: ['beacon'] },
 ];
 // 研究で解禁される設備の対応表。未解禁の間は建設メニューに出さない（Phase3.1のレシピ段階解放と同じ考え方）
@@ -2129,6 +2259,31 @@ function openBuilding(b, keep) {
       ${b.active ? '' : '<div style="margin-top:12px"><button class="btn primary" id="pb-beacon-activate" style="width:100%;padding:14px;font-size:15px;">🚀 ビーコンを起動する</button></div>'}` +
       (b.active ? '' : removeBtn);
   }
+  else if (b.type === 'generator' || b.type === 'advGenerator') {
+    const adv = b.type === 'advGenerator';
+    const fuel = adv ? 'arcCore' : 'crystal';
+    const cap = adv ? CONFIG.ADV_GEN_FUEL_CAP : CONFIG.GEN_FUEL_CAP;
+    const output = adv ? CONFIG.ADV_GEN_OUTPUT : CONFIG.GEN_OUTPUT;
+    const radius = adv ? CONFIG.ADV_GEN_RADIUS : CONFIG.GEN_RADIUS;
+    const have = invCount(inv, fuel), cur = invCount(b.input, fuel);
+    html = `<h2>${adv ? '🔋 上位発電機' : '🔋 小型発電機'}<button class="close-x">✕</button></h2>
+      <div class="row"><div class="grow">${b.active ? '⚡ 発電中' : '停止中（燃料切れ）'}<br>
+      <span class="cost">出力${output}・送電半径${radius}マス（無線。届く範囲の設備が動く）</span></div></div>
+      <div class="row"><div class="grow">${ITEMS[fuel].name}（燃料 ${cur}/${cap}・所持 ${have}）</div>
+        <button class="btn small" data-in="${fuel}" data-n="1" ${have ? '' : 'disabled'}>入れる</button>
+        <button class="btn small" data-in="${fuel}" data-n="10" ${have ? '' : 'disabled'}>×10</button></div>` + removeBtn;
+  }
+  else if (b.type === 'relay') {
+    const net = powerNetworks.find(n => n.nodes.includes(b));
+    const live = !!(net && net.supply > 0);
+    html = `<h2>📶 無線中継塔<button class="close-x">✕</button></h2>
+      <div class="row"><div class="grow">${live ? '⚡ 発電機とつながっている（中継中）' : '⚠️ まだどの発電機ともつながっていない'}<br>
+      <span class="cost">中継半径：${CONFIG.RELAY_RADIUS}マス。電力は消費しない（純粋な中継専用）。</span></div></div>` + removeBtn;
+  }
+  if (CONFIG.POWER_USE[b.type] !== undefined) {
+    const statusRow = `<div class="row"><div class="grow" style="color:${b.powered ? 'var(--accent)' : 'var(--danger)'}">${b.powered ? '⚡ 電力供給中' : '⚡ 停電中（電力が届いていない、または不足している）'}</div></div>`;
+    html = html.replace(/(<\/h2>)/, `$1${statusRow}`);
+  }
   showPanel(html);
   openedPanel = { kind: 'building', b };
 
@@ -2144,7 +2299,8 @@ function openBuilding(b, keep) {
   });
   panelEl.querySelectorAll('[data-in]').forEach(btn => btn.addEventListener('click', () => {
     const item = btn.dataset.in;
-    const cap = b.type === 'assembler' ? CONFIG.ASSEMBLER_IN_CAP : b.type === 'lab' ? CONFIG.LAB_IN_CAP : CONFIG.FURNACE_IN_CAP;
+    const cap = b.type === 'assembler' ? CONFIG.ASSEMBLER_IN_CAP : b.type === 'lab' ? CONFIG.LAB_IN_CAP
+      : b.type === 'advGenerator' ? CONFIG.ADV_GEN_FUEL_CAP : b.type === 'generator' ? CONFIG.GEN_FUEL_CAP : CONFIG.FURNACE_IN_CAP;
     const n = Math.min(+btn.dataset.n, invCount(inv, item), cap - invCount(b.input, item));
     if (n > 0) { invAdd(inv, item, -n); invAdd(b.input, item, n); markDirty(); saveGame(); }
   }));
@@ -2427,6 +2583,7 @@ function applySave(d) {
   G.time = d.time || 0;
   G.lastSeen = d.lastSeen || Date.now();
   backfillHadStoneBlock();
+  markPowerTopologyDirty();
   buildMode = null;
   centerCamera(true);
   markDirty();
