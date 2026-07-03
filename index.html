@@ -572,7 +572,7 @@ function trackMineTapStreak(x, y) {
   if (tapStreakCount >= CONFIG.MINER_HINT_TAP_COUNT && !G.flags.hintMinerShown
       && !hasBuilding('miner') && !hasBuilding('minerMk2')) {
     G.flags.hintMinerShown = true;
-    toast('手掘りには限界があります。採掘機を設置すると自動で掘り続けてくれます', undefined, 4500);
+    toast('手掘りには限界があります。採掘機を設置すると自動で掘り続けてくれます', undefined, 4500, true);
     saveGame();
   }
 }
@@ -2271,13 +2271,17 @@ function drawClearArt(variant) {
 // トースト
 // =====================================================================
 let toastTimer = null;
-function toast(msg, kind, durMs) {
+let toastLockUntil = 0;   // この時刻までは、priority指定のトーストが表示中なので他の通知で上書きしない
+function toast(msg, kind, durMs, priority) {
+  if (!priority && Date.now() < toastLockUntil) return;   // 連打中の他のトースト（掘りつくした等）に上書きされないようにする
   const el = document.getElementById('toast');
   el.textContent = msg;
   el.className = kind || '';
   el.style.display = 'block';
   clearTimeout(toastTimer);
-  toastTimer = setTimeout(() => { el.style.display = 'none'; }, durMs || 2600);
+  const dur = durMs || 2600;
+  toastLockUntil = priority ? Date.now() + dur : 0;
+  toastTimer = setTimeout(() => { el.style.display = 'none'; }, dur);
 }
 
 // =====================================================================
