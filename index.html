@@ -1429,6 +1429,25 @@ function render() {
       const [bx, by] = tileToScreen(G.base.x, G.base.y);
       ctx.beginPath(); ctx.arc(bx, by, CONFIG.ANTENNA_RANGE * s, 0, 7); ctx.stroke();
     }
+    // 発電機/中継塔の設置モード中は、ロボの足元に置いた場合の送電範囲の目安を表示する
+    const previewRadius = { generator: CONFIG.GEN_RADIUS, advGenerator: CONFIG.ADV_GEN_RADIUS, relay: CONFIG.RELAY_RADIUS }[buildMode];
+    if (previewRadius) {
+      const [px, py] = tileToScreen(p.x, p.y);
+      ctx.strokeStyle = 'rgba(255,217,75,.8)'; ctx.setLineDash([6, 5]);
+      ctx.beginPath(); ctx.arc(px, py, previewRadius * s, 0, 7); ctx.stroke();
+      ctx.setLineDash([]);
+    }
+  }
+  // 選択中（パネルを開いている）の発電系設備の送電範囲を常時表示する
+  if (openedPanel && openedPanel.kind === 'building') {
+    const ob = openedPanel.b;
+    const obRadius = { base: CONFIG.BASE_POWER_RADIUS, generator: CONFIG.GEN_RADIUS, advGenerator: CONFIG.ADV_GEN_RADIUS, relay: CONFIG.RELAY_RADIUS }[ob.type];
+    if (obRadius && G.buildings[bkey(ob.x, ob.y)]) {
+      const [obx, oby] = tileToScreen(ob.x, ob.y);
+      ctx.strokeStyle = 'rgba(255,217,75,.85)'; ctx.lineWidth = 2; ctx.setLineDash([6, 5]);
+      ctx.beginPath(); ctx.arc(obx, oby, obRadius * s, 0, 7); ctx.stroke();
+      ctx.setLineDash([]);
+    }
   }
 
   // 向きプレビュー（設置確定前・タップで回転／✅で確定）：大きめの矢印で視認性を優先する
