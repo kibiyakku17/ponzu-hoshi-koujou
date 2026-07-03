@@ -938,7 +938,17 @@ function tickPower() {
     if (net) net.demand += CONFIG.POWER_USE[b.type];
     assigned.push([b, net]);
   }
-  for (const [b, net] of assigned) b.powered = !!(net && net.supply >= net.demand);
+  for (const [b, net] of assigned) {
+    const newPowered = !!(net && net.supply >= net.demand);
+    // 初めて停電を経験した瞬間に、小型発電機・無線中継塔の存在を一度だけ案内する
+    // （序盤から強制的に発電機を作らせず、実際に電力が必要になったタイミングで気づかせる）
+    if (!newPowered && b.powered !== false && !G.flags.hintPowerShown) {
+      G.flags.hintPowerShown = true;
+      toast('⚡ 電力が足りない！🔨建設メニューの「基本」から小型発電機を、「電力」から無線中継塔を作って電力網を広げよう', undefined, 5500, true);
+      saveGame();
+    }
+    b.powered = newPowered;
+  }
 }
 
 // 研究所：選択中の研究のコストに従い、パックを1個ずつ消費して進行する
@@ -1277,8 +1287,6 @@ const QUESTS = [
   { id: 'stoneBlock', check: () => everHad('stoneBlock'), text: '精錬炉に <b>石</b> を入れて <b>石ブロック</b> も作ろう' },
   { id: 'workbench',check: () => hasBuilding('workbench'), text: '<b>作業台</b> を建てよう（石×4＋鉄板×2）' },
   { id: 'part',     check: () => everHad('part'), text: '作業台で <b>部品</b> を作ろう（鉄板×2）' },
-  { id: 'generator',check: () => hasBuilding('generator') || hasBuilding('advGenerator'),
-    text: '<b>小型発電機</b>を建てて工場に電力を送ろう（鉄板×5＋部品×3）。設備は電力が届かないと止まってしまう！' },
   { id: 'miner',    check: () => hasBuilding('miner'), text: '<b>採掘機</b> を鉱脈の上に置いて自動化しよう（鉄板×4＋石ブロック×2）' },
   { id: 'antenna',  check: () => hasBuilding('antenna'), text: '<b>通信アンテナ</b> を拠点の近くに建てよう（部品×5＋石ブロック×5＋結晶×3）' },
   { id: 'activate', check: () => G.cleared, text: 'アンテナをタップして <b>起動</b> しよう！' },
