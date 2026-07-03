@@ -172,6 +172,8 @@ const CONFIG = {
   ORE_MIN: 30, ORE_MAX: 55,        // 鉱脈1タイルの埋蔵量（採掘機換算。実際の内部埋蔵量はORE_VEIN_MULT倍で保持する）
   ORE_VEIN_MULT: 10,     // 内部埋蔵量の底上げ倍率。採掘機は1個産出ごとにこの倍率ぶん消費するため自動化の速度・総産出量は変わらないが、
                          // 手動タップ（1回1消費）の体感の減りだけがこの倍率ぶん遅くなる＝連打だけでは現実的に掘りつくせなくなる
+  MINER_HINT_TAP_COUNT: 15,  // 同一鉱脈への連打がこの回数に達すると採掘機ヒントの対象になる
+  MINER_HINT_WINDOW_SEC: 10, // ↑を「連打」とみなす時間窓（秒）。この秒数を空けるとカウントがリセットされる
   MINER_INTERVAL: 4,     // 採掘機の産出間隔（秒/個）
   MINER_BUFFER: 12,      // 採掘機の内部バッファ上限
   MINER_RADIUS: 1,       // 採掘機の採掘範囲（1=中心3×3）
@@ -558,10 +560,28 @@ function findPathAdjacent(tx, ty) {
 // =====================================================================
 function playerDistTo(x, y) { return Math.hypot(G.player.x - x, G.player.y - y); }
 
+// 同一鉱脈タイルへの連打を検知し、採掘機未設置のプレイヤーへ一度きりヒントを出す（行動トリガー型ヒント）
+let tapStreakKey = null, tapStreakCount = 0, tapStreakSince = 0;
+function trackMineTapStreak(x, y) {
+  const key = bkey(x, y);
+  if (key === tapStreakKey && G.time - tapStreakSince <= CONFIG.MINER_HINT_WINDOW_SEC) {
+    tapStreakCount++;
+  } else {
+    tapStreakKey = key; tapStreakCount = 1; tapStreakSince = G.time;
+  }
+  if (tapStreakCount >= CONFIG.MINER_HINT_TAP_COUNT && !G.flags.hintMinerShown
+      && !hasBuilding('miner') && !hasBuilding('minerMk2')) {
+    G.flags.hintMinerShown = true;
+    toast('手掘りには限界があります。採掘機を設置すると自動で掘り続けてくれます', undefined, 4500);
+    saveGame();
+  }
+}
+
 function tryMine(x, y) {
   const t = G.tiles[idx(x, y)];
   const item = ORE_ITEM[t];
   if (!item || G.ore[idx(x, y)] <= 0) return;
+  trackMineTapStreak(x, y);
   G.ore[idx(x, y)] -= CONFIG.MINE_PER_TAP;
   invAdd(G.player.inv, item, CONFIG.MINE_PER_TAP);
   fx.push({ type: 'pop', x, y, txt: '+1 ' + ITEMS[item].name, t: 0 });
@@ -2250,13 +2270,13 @@ function drawClearArt(variant) {
 // トースト
 // =====================================================================
 let toastTimer = null;
-function toast(msg, kind) {
+function toast(msg, kind, durMs) {
   const el = document.getElementById('toast');
   el.textContent = msg;
   el.className = kind || '';
   el.style.display = 'block';
   clearTimeout(toastTimer);
-  toastTimer = setTimeout(() => { el.style.display = 'none'; }, 2600);
+  toastTimer = setTimeout(() => { el.style.display = 'none'; }, durMs || 2600);
 }
 
 // =====================================================================
