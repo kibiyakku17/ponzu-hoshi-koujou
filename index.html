@@ -2182,7 +2182,9 @@ function openSettings() {
     if (confirm('セーブデータを消して最初からやり直す？')) {
       suppressSave = true;
       localStorage.removeItem(SAVE_KEY);
-      location.reload();
+      // location.reload()はブラウザ/PWAのキャッシュから古いページを再利用してしまうことがあるため、
+      // クエリを変えて別URL扱いにし確実にネットワークから読み直させる
+      location.href = location.pathname + '?reset=' + Date.now();
     }
   };
 }
