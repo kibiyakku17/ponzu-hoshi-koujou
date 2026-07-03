@@ -1882,16 +1882,34 @@ function refreshOpenPanel() {
 }
 
 // --- 建設メニュー ---
+// 建設メニューのカテゴリ分け（序盤の必須設備は「基本」1タブに収め、タブ切り替えなしで最初のアンテナ起動まで行けるようにする）
+const BUILD_CATEGORIES = [
+  { id: 'basic', name: '🔧 基本',   items: ['miner', 'furnace', 'chest', 'workbench', 'belt', 'arm', 'antenna'] },
+  { id: 'auto',  name: '⚙️ 自動化', items: ['assembler', 'lab', 'splitter', 'chestIn', 'fastBelt', 'minerMk2', 'fastArm', 'filterArm'] },
+  { id: 'power', name: '⚡ 電力',   items: [] },
+  { id: 'goal',  name: '📡 進行',   items: ['beacon'] },
+];
+// 研究で解禁される設備の対応表。未解禁の間は建設メニューに出さない（Phase3.1のレシピ段階解放と同じ考え方）
+const BUILDING_RESEARCH_GATE = {
+  splitter: 'splitter', chestIn: 'inputChest', fastBelt: 'fastBelt',
+  minerMk2: 'minerMk2', fastArm: 'fastArm', filterArm: 'filterArm',
+};
+function buildingUnlocked(type) {
+  const gate = BUILDING_RESEARCH_GATE[type];
+  if (gate) return !!G.research[gate];
+  if (type === 'beacon') return G.cleared;
+  return true;
+}
+let buildMenuTab = null;
 function openBuildMenu(keep) {
-  const list = ['furnace', 'assembler', 'lab', 'chest', 'workbench', 'miner', 'belt', 'arm', 'antenna'];
-  if (G.research.splitter) list.push('splitter');
-  if (G.research.inputChest) list.push('chestIn');
-  if (G.research.fastBelt) list.push('fastBelt');
-  if (G.research.minerMk2) list.push('minerMk2');
-  if (G.research.fastArm) list.push('fastArm');
-  if (G.research.filterArm) list.push('filterArm');
-  if (G.cleared) list.push('beacon');
-  const rows = list.map(t => {
+  if (!buildMenuTab) buildMenuTab = BUILD_CATEGORIES[0].id;
+  const tabsHtml = BUILD_CATEGORIES.map(c => {
+    const n = c.items.filter(buildingUnlocked).length;
+    return `<button class="btn small ${buildMenuTab === c.id ? 'primary' : ''}" data-tab="${c.id}" style="margin:2px 4px 2px 0">${c.name}（${n}）</button>`;
+  }).join('');
+  const cat = BUILD_CATEGORIES.find(c => c.id === buildMenuTab) || BUILD_CATEGORIES[0];
+  const list = cat.items.filter(buildingUnlocked);
+  const rows = list.length ? list.map(t => {
     const ok = canAfford(CONFIG.COSTS[t]);
     return `<div class="row">
       <div class="grow"><b>${BUILDINGS[t].icon} ${BUILDINGS[t].name}</b><br>
@@ -1899,9 +1917,14 @@ function openBuildMenu(keep) {
         <span class="cost">${BUILDINGS[t].desc}</span></div>
       <button class="btn ${ok ? 'primary' : ''}" data-build="${t}" ${ok ? '' : 'disabled'}>設置</button>
     </div>`;
-  }).join('');
-  showPanel(`<h2>🔨 建設メニュー<button class="close-x">✕</button></h2>${rows}`);
+  }).join('') : '<div class="row"><span class="cost">このカテゴリにはまだ何もない（研究で解禁されるものがあります）</span></div>';
+  showPanel(`<h2>🔨 建設メニュー<button class="close-x">✕</button></h2>
+    <div style="display:flex;flex-wrap:wrap;margin-bottom:8px">${tabsHtml}</div>
+    ${rows}`);
   openedPanel = { kind: 'build' };
+  panelEl.querySelectorAll('[data-tab]').forEach(btn => {
+    btn.onclick = () => { buildMenuTab = btn.dataset.tab; openBuildMenu(); };
+  });
   panelEl.querySelectorAll('[data-build]').forEach(btn => {
     btn.onclick = () => { buildMode = btn.dataset.build; placePreview = null; closePanel(); updateBuildModeUI(); };
   });
