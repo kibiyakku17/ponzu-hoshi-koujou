@@ -1949,7 +1949,7 @@ function openBuilding(b, keep) {
         <button class="btn small" data-in="${item}" data-n="10" ${have ? '' : 'disabled'}>×10</button></div>`;
     }).join('') : '';
     html = `<h2>🔬 研究所<button class="close-x">✕</button></h2>
-      ${curTech ? `<h3>研究中：${curTech.name}</h3><div class="progress"><i style="width:${prog}%"></i></div>${inRows}` : '<div class="row"><span class="cost">下から研究対象を選んでね</span></div>'}
+      ${curTech ? `<h3>研究中：${curTech.name}（${prog}%）</h3><div class="progress"><i style="width:${prog}%"></i></div>${inRows}` : '<div class="row"><span class="cost">下から研究対象を選んでね</span></div>'}
       ${treeRows}` + removeBtn;
   }
   else if (b.type === 'chest' || b.type === 'chestIn') {
