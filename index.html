@@ -1120,6 +1120,7 @@ const QUESTS = [
     text: '鉱脈をタップして <b>鉄鉱石</b> と <b>石×5</b> を集めよう' },
   { id: 'furnace',  check: () => hasBuilding('furnace'), text: '<b>精錬炉</b> を建てよう（🔨建設 → 石×5）' },
   { id: 'plate',    check: () => everHad('ironPlate'), text: '精錬炉に <b>鉄鉱石</b> を入れて <b>鉄板</b> を作ろう' },
+  { id: 'stoneBlock', check: () => everHad('stoneBlock'), text: '精錬炉に <b>石</b> を入れて <b>石ブロック</b> も作ろう' },
   { id: 'workbench',check: () => hasBuilding('workbench'), text: '<b>作業台</b> を建てよう（石×4＋鉄板×2）' },
   { id: 'part',     check: () => everHad('part'), text: '作業台で <b>部品</b> を作ろう（鉄板×2）' },
   { id: 'miner',    check: () => hasBuilding('miner'), text: '<b>採掘機</b> を鉱脈の上に置いて自動化しよう（鉄板×4＋石ブロック×2）' },
@@ -1140,7 +1141,7 @@ function buildingOfType(type) { return Object.values(G.buildings).find(b => b.ty
 function everHad(item) { return !!G.flags['had_' + item]; }
 function totalEverMined() { return 0; } // gather判定は所持数で簡易化
 function updateFlags() {
-  for (const k of ['ironPlate', 'part', 'copperWire', 'circuit']) {
+  for (const k of ['ironPlate', 'stoneBlock', 'part', 'copperWire', 'circuit']) {
     if (invCount(G.player.inv, k) > 0) {
       if (!G.flags['had_' + k]) { G.flags['had_' + k] = true; markDirty(); }
     }
@@ -2345,9 +2346,23 @@ function applySave(d) {
   G.beaconCleared = !!d.beaconCleared;
   G.time = d.time || 0;
   G.lastSeen = d.lastSeen || Date.now();
+  backfillHadStoneBlock();
   buildMode = null;
   centerCamera(true);
   markDirty();
+}
+// 既存セーブ向け：石ブロックのクエスト追加より前から遊んでいたプレイヤーが、今さら
+// 「石ブロックを作ろう」を出されないように、既に入手済みとみなせる証拠があればhad_stoneBlockを補完する
+function backfillHadStoneBlock() {
+  if (G.flags.had_stoneBlock) return;
+  if (invCount(G.player.inv, 'stoneBlock') > 0) { G.flags.had_stoneBlock = true; return; }
+  if (G.flags.q_gate || G.flags.q_gate2) { G.flags.had_stoneBlock = true; return; } // ゲート修理はstoneBlockを消費する
+  for (const b of Object.values(G.buildings)) {
+    if (CONFIG.COSTS[b.type] && CONFIG.COSTS[b.type].stoneBlock) { G.flags.had_stoneBlock = true; return; }
+    for (const src of [b.buffer, b.input, b.output, b.inv]) {
+      if (src && src.stoneBlock > 0) { G.flags.had_stoneBlock = true; return; }
+    }
+  }
 }
 
 // Phase1（v1・48×48単一エリア）のセーブを新マップ形式（v2・第1＋第2エリア）へ移行
