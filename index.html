@@ -2180,6 +2180,7 @@ function openSettings() {
   panelEl.querySelector('#st-save').onclick = () => { saveGame(); toast('セーブした！'); };
   panelEl.querySelector('#st-reset').onclick = () => {
     if (confirm('セーブデータを消して最初からやり直す？')) {
+      suppressSave = true;
       localStorage.removeItem(SAVE_KEY);
       location.reload();
     }
@@ -2303,7 +2304,11 @@ function makeSave() {
     lastSeen: G.lastSeen,
   };
 }
+// リセット時にtrueにすると、reload()が発火させるpagehide/visibilitychangeの自動セーブを止める
+// （これが無いと、削除した直後のreloadでオートセーブが復活させてしまいリセットが効かなくなる）
+let suppressSave = false;
 function saveGame() {
+  if (suppressSave) return;
   G.lastSeen = Date.now();
   try { localStorage.setItem(SAVE_KEY, JSON.stringify(makeSave())); } catch (e) { /* 容量オーバー等は無視 */ }
 }
