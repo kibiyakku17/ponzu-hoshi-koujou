@@ -765,7 +765,13 @@ function tryPlace(type, x, y, initDir) {
   buildMode = null;
   placePreview = null;
   updateBuildModeUI();
-  toast(BUILDINGS[type].name + 'を設置した！');
+  if ((type === 'generator' || type === 'advGenerator') && !G.flags.powerGraceEnded) {
+    // 発電機を初めて建てた瞬間から本当の電力需給が適用される（これまでは無条件で稼働する恩恵期間だった）
+    G.flags.powerGraceEnded = true;
+    toast(BUILDINGS[type].name + 'を設置した！これで電力網が有効になった。届く範囲の設備を稼働させ、消費が発電を超えると停電するので気をつけよう', undefined, 5000, true);
+  } else {
+    toast(BUILDINGS[type].name + 'を設置した！');
+  }
   markDirty(); saveGame();
 }
 
@@ -921,8 +927,11 @@ function rebuildPowerTopology() {
 }
 // 各設備の稼働可否（b.powered）を毎ティック確定する：
 // 供給＝ネットワーク内で現在発電中のノードの出力合計、需要＝そのネットワークが届く消費設備の消費量合計
+// ただし、最初の発電機を建てるまでは「電力無限」の恩恵期間（G.flags.powerGraceEnded未設定）とし、
+// 新規セーブ・既存セーブ（移行時）とも「発電機を作る前から停電」という詰みを避ける
 function tickPower() {
   if (powerTopologyDirty) rebuildPowerTopology();
+  const graceActive = !G.flags.powerGraceEnded;
   for (const net of powerNetworks) { net.supply = net.nodes.reduce((s, n) => s + powerNodeOutput(n), 0); net.demand = 0; }
   const assigned = [];
   for (const b of Object.values(G.buildings)) {
@@ -931,7 +940,7 @@ function tickPower() {
     if (net) net.demand += CONFIG.POWER_USE[b.type];
     assigned.push([b, net]);
   }
-  for (const [b, net] of assigned) b.powered = !!(net && net.supply >= net.demand);
+  for (const [b, net] of assigned) b.powered = graceActive ? true : !!(net && net.supply >= net.demand);
 }
 
 // 研究所：選択中の研究のコストに従い、パックを1個ずつ消費して進行する
@@ -1270,6 +1279,8 @@ const QUESTS = [
   { id: 'stoneBlock', check: () => everHad('stoneBlock'), text: '精錬炉に <b>石</b> を入れて <b>石ブロック</b> も作ろう' },
   { id: 'workbench',check: () => hasBuilding('workbench'), text: '<b>作業台</b> を建てよう（石×4＋鉄板×2）' },
   { id: 'part',     check: () => everHad('part'), text: '作業台で <b>部品</b> を作ろう（鉄板×2）' },
+  { id: 'generator',check: () => hasBuilding('generator') || hasBuilding('advGenerator'),
+    text: '<b>小型発電機</b>を建てて工場に電力を送ろう（鉄板×5＋部品×3）。設備は電力が届かないと止まってしまう！' },
   { id: 'miner',    check: () => hasBuilding('miner'), text: '<b>採掘機</b> を鉱脈の上に置いて自動化しよう（鉄板×4＋石ブロック×2）' },
   { id: 'antenna',  check: () => hasBuilding('antenna'), text: '<b>通信アンテナ</b> を拠点の近くに建てよう（部品×5＋石ブロック×5＋結晶×3）' },
   { id: 'activate', check: () => G.cleared, text: 'アンテナをタップして <b>起動</b> しよう！' },
@@ -1282,13 +1293,21 @@ const QUESTS_POST = [
   { id: 'circuit', check: () => everHad('circuit'), text: '作業台で<b>回路</b>を作ろう（銅線×2＋鉄板×1）' },
   { id: 'battery', check: () => !!G.player.batteryUpgraded, text: '作業台で<b>バッテリー拡張</b>をしよう（回路×3＋結晶×2）' },
   { id: 'beacon',  check: () => G.beaconCleared, text: '<b>誘導ビーコン</b>を建てて起動しよう（回路×5＋部品×10＋結晶×5）' },
+  { id: 'gate3research', check: () => !!G.research.gate3Blueprint,
+    text: '研究所で<b>「第4エリアのゲート図面」</b>を研究しよう（さらに先へ進むにはこれが必要）' },
+  { id: 'gate3',   check: () => !!G.flags['q_gate3'],
+    text: 'さらに東側の<b>壊れたゲート</b>を修理して第4エリアへ行こう（部品×30＋石ブロック×30＋回路×20）' },
+  { id: 'starCrystalCore', check: () => everHad('starCrystalCore'),
+    text: '第4エリアで<b>星晶石</b>を集め、精錬炉で高純度星晶石、組立機で<b>星晶コア</b>を作ろう' },
+  { id: 'advGenerator', check: () => hasBuilding('advGenerator'),
+    text: '星晶コアから<b>アークコア</b>を作り、<b>上位発電機</b>を建てて電力不足を解消しよう' },
 ];
 function hasBuilding(type) { return Object.values(G.buildings).some(b => b.type === type); }
 function buildingOfType(type) { return Object.values(G.buildings).find(b => b.type === type); }
 function everHad(item) { return !!G.flags['had_' + item]; }
 function totalEverMined() { return 0; } // gather判定は所持数で簡易化
 function updateFlags() {
-  for (const k of ['ironPlate', 'stoneBlock', 'part', 'copperWire', 'circuit']) {
+  for (const k of ['ironPlate', 'stoneBlock', 'part', 'copperWire', 'circuit', 'starCrystalCore']) {
     if (invCount(G.player.inv, k) > 0) {
       if (!G.flags['had_' + k]) { G.flags['had_' + k] = true; markDirty(); }
     }
@@ -2049,9 +2068,9 @@ function refreshOpenPanel() {
 // --- 建設メニュー ---
 // 建設メニューのカテゴリ分け（序盤の必須設備は「基本」1タブに収め、タブ切り替えなしで最初のアンテナ起動まで行けるようにする）
 const BUILD_CATEGORIES = [
-  { id: 'basic', name: '🔧 基本',   items: ['miner', 'furnace', 'chest', 'workbench', 'belt', 'arm', 'antenna'] },
+  { id: 'basic', name: '🔧 基本',   items: ['miner', 'furnace', 'chest', 'workbench', 'belt', 'arm', 'generator', 'antenna'] },
   { id: 'auto',  name: '⚙️ 自動化', items: ['assembler', 'lab', 'splitter', 'chestIn', 'fastBelt', 'minerMk2', 'fastArm', 'filterArm'] },
-  { id: 'power', name: '⚡ 電力',   items: ['generator', 'relay', 'advGenerator'] },
+  { id: 'power', name: '⚡ 電力',   items: ['relay', 'advGenerator'] },
   { id: 'goal',  name: '📡 進行',   items: ['beacon'] },
 ];
 // 研究で解禁される設備の対応表。未解禁の間は建設メニューに出さない（Phase3.1のレシピ段階解放と同じ考え方）
