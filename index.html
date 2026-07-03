@@ -214,6 +214,10 @@ const CONFIG = {
   GEN_FUEL_INTERVAL: 20, // 小型発電機がエネルギー結晶1個を消費するのにかかる時間（秒）
   GEN_FUEL_CAP: 20,      // 小型発電機の燃料バッファ上限
   RELAY_RADIUS: 15,      // 無線中継塔の中継半径（タイル）。中継塔自体は電力を消費しない
+  ADV_GEN_OUTPUT: 80,        // 上位発電機の発電量
+  ADV_GEN_RADIUS: 28,        // 上位発電機の送電半径（タイル）
+  ADV_GEN_FUEL_INTERVAL: 60, // 上位発電機がアークコア1個を消費するのにかかる時間（秒）
+  ADV_GEN_FUEL_CAP: 10,      // 上位発電機の燃料バッファ上限
   // 設備の設置コスト（gateは修理コスト）
   COSTS: {
     furnace:  { stone: 5 },
@@ -236,6 +240,8 @@ const CONFIG = {
     gate2:    { part: 20, stoneBlock: 20, circuit: 10 },
     relay:    { ironPlate: 3, part: 2 },
     generator:{ ironPlate: 5, part: 3 },
+    advGenerator: { starCrystalCore: 4, circuit: 6, part: 6 },
+    gate3:    { part: 30, stoneBlock: 30, circuit: 20 },
   },
   // クラフトレシピ（作業台／組立機で共通）
   RECIPES: [
@@ -243,6 +249,8 @@ const CONFIG = {
     { out: 'circuit', outN: 1, in: { copperWire: 2, ironPlate: 1 }, name: '回路' },
     { out: 'researchPack1', outN: 1, in: { ironPlate: 1, stoneBlock: 1 }, name: '研究パックI' },
     { out: 'researchPack2', outN: 1, in: { circuit: 1, crystal: 1 }, name: '研究パックII' },
+    { out: 'starCrystalCore', outN: 1, in: { starCrystalRefined: 3 }, name: '星晶コア' },
+    { out: 'arcCore', outN: 1, in: { starCrystalCore: 2, circuit: 1 }, name: 'アークコア' },
   ],
   // 研究ツリー（Tier1=パックIのみ、Tier2=パックI＋II。Tier2はTier1が全て解除済みで選択可に）
   RESEARCH: [
@@ -256,13 +264,14 @@ const CONFIG = {
     { id: 'sensorUpgrade',  tier: 2, name: '広域センサー',       desc: '霧が晴れる視界範囲を拡大する。', cost: { researchPack2: 120 } },
     { id: 'gateWidening',   tier: 2, name: 'ゲート拡張工事',     desc: '修理済みゲートの幅を3マスに拡幅し、ベルトを複数本並べて通せるようにする。', cost: { researchPack1: 320, researchPack2: 320 } },
     { id: 'gate2Blueprint', tier: 2, name: '第3エリアのゲート図面', desc: '第3エリアへのゲートが修理できるようになる。', cost: { researchPack1: 500, researchPack2: 500 } },
+    { id: 'gate3Blueprint', tier: 2, name: '第4エリアのゲート図面', desc: '第4エリアへのゲートが修理できるようになる。星晶石・上位発電機はこの先にある。', cost: { researchPack1: 700, researchPack2: 700 } },
   ],
 };
 /* ▲▲▲ 調整パラメータここまで ▲▲▲ */
 
 // ---- タイル種別 ----
-const T_PLAIN = 0, T_ROCK = 1, T_IRON = 2, T_STONE = 3, T_CRYSTAL = 4, T_COPPER = 5;
-const ORE_ITEM = { [T_IRON]: 'ironOre', [T_STONE]: 'stone', [T_CRYSTAL]: 'crystal', [T_COPPER]: 'copperOre' };
+const T_PLAIN = 0, T_ROCK = 1, T_IRON = 2, T_STONE = 3, T_CRYSTAL = 4, T_COPPER = 5, T_STARCRYSTAL = 6;
+const ORE_ITEM = { [T_IRON]: 'ironOre', [T_STONE]: 'stone', [T_CRYSTAL]: 'crystal', [T_COPPER]: 'copperOre', [T_STARCRYSTAL]: 'starCrystal' };
 
 // ---- 4方向ベクトル（E,S,W,N の順・時計回り。canvas回転角 = index*90°と一致） ----
 const DIR_VEC = [
@@ -285,6 +294,10 @@ const ITEMS = {
   circuit:   { name: '回路',     color: '#8fe0a0' },
   researchPack1: { name: '研究パックI',  color: '#a78bfa' },
   researchPack2: { name: '研究パックII', color: '#f472b6' },
+  starCrystal:       { name: '星晶石',       color: '#c9a7ff' },
+  starCrystalRefined:{ name: '高純度星晶石', color: '#9b6bd6' },
+  starCrystalCore:   { name: '星晶コア',     color: '#7c3fd6' },
+  arcCore:           { name: 'アークコア',   color: '#f0d9ff' },
 };
 
 // ---- 設備定義 ----
@@ -309,15 +322,17 @@ const BUILDINGS = {
   filterArm: { name: 'フィルタアーム', icon: '🎯', desc: '指定した1種類のアイテムだけを掴む。それ以外は素通りさせる。設置後タップで対象アイテムと向きを設定。' },
   generator: { name: '小型発電機', icon: '🔋', desc: 'エネルギー結晶を消費して周囲に電力を送る（無線・半径15マス）。研究不要ですぐ作れる。' },
   relay:     { name: '無線中継塔', icon: '📶', desc: '発電機または他の中継塔から半径15マス以内に置くと、そこからさらに半径15マスへ電力を中継する。電力は消費しない。' },
+  advGenerator: { name: '上位発電機', icon: '🔮', desc: 'アークコアを消費し、小型発電機より大幅に高い電力を発電する（無線・半径28マス）。第4エリアのゲート図面が必要。' },
 };
 
 const SAVE_KEY = 'ponzu_hoshi_koujou_v1';
-const SAVE_VERSION = 5;   // 現在の最新セーブ形式。マップ形状など互換性を壊す変更をした時だけ上げる
-// マップ構成：第1エリア｜境界壁｜第2エリア｜境界壁｜第3エリア（境界壁それぞれの中央にゲート）
+const SAVE_VERSION = 6;   // 現在の最新セーブ形式。マップ形状など互換性を壊す変更をした時だけ上げる
+// マップ構成：第1エリア｜境界壁｜第2エリア｜境界壁｜第3エリア｜境界壁｜第4エリア（境界壁それぞれの中央にゲート）
 const AREA_W = CONFIG.AREA_W, MAP_H = CONFIG.MAP_H, BORDER_W = CONFIG.BORDER_W;
-const W = AREA_W * 3 + BORDER_W * 2, H = MAP_H;
+const W = AREA_W * 4 + BORDER_W * 3, H = MAP_H;
 const GATE_X = AREA_W + Math.floor(BORDER_W / 2), GATE_Y = 24;
 const GATE2_X = AREA_W * 2 + BORDER_W + Math.floor(BORDER_W / 2);
+const GATE3_X = AREA_W * 3 + BORDER_W * 2 + Math.floor(BORDER_W / 2);
 
 // =====================================================================
 // 乱数（シード付き）
@@ -436,6 +451,7 @@ function genAreaLocal(rng, opts) {
   const bx = 24, by = 24; // 第1エリアの拠点位置（G.baseと一致させる）
   const ironN = opts.ironVeins ?? 7, stoneN = opts.stoneVeins ?? 7, crystalN = opts.crystalVeins ?? 5;
   const copperN = opts.copper ? (opts.copperVeins ?? 8) : 0;
+  const starN = opts.starCrystal ? (opts.starCrystalVeins ?? 14) : 0;
   for (let i = 0; i < ironN; i++) placeVein(T_IRON, Math.floor(rng() * LN), Math.floor(rng() * MAP_H), 4 + Math.floor(rng() * 4));
   for (let i = 0; i < stoneN; i++) placeVein(T_STONE, Math.floor(rng() * LN), Math.floor(rng() * MAP_H), 4 + Math.floor(rng() * 4));
   for (let i = 0; i < crystalN; i++) {
@@ -445,6 +461,7 @@ function genAreaLocal(rng, opts) {
     placeVein(T_CRYSTAL, x, y, 3 + Math.floor(rng() * 3));
   }
   for (let i = 0; i < copperN; i++) placeVein(T_COPPER, Math.floor(rng() * LN), Math.floor(rng() * MAP_H), 4 + Math.floor(rng() * 4));
+  for (let i = 0; i < starN; i++) placeVein(T_STARCRYSTAL, Math.floor(rng() * LN), Math.floor(rng() * MAP_H), 4 + Math.floor(rng() * 4));
 
   if (opts.hasBase) {
     for (let dy = -3; dy <= 3; dy++) for (let dx = -3; dx <= 3; dx++) {
@@ -460,6 +477,14 @@ function genAreaLocal(rng, opts) {
       if (linMap(x, y)) { tiles[lidx(x, y)] = T_PLAIN; ore[lidx(x, y)] = 0; }
     }
     placeVein(T_COPPER, 3, GATE_Y, 5);
+    placeVein(T_IRON, 2, GATE_Y - 6, 4);
+  } else if (opts.starCrystal) {
+    // ゲート側の入口付近に星晶石・鉄鉱脈を保証（到着してすぐ精製ラインを組めるように）
+    for (let dy = -2; dy <= 2; dy++) for (let dx = -2; dx <= 2; dx++) {
+      const x = 2 + dx, y = GATE_Y + dy;
+      if (linMap(x, y)) { tiles[lidx(x, y)] = T_PLAIN; ore[lidx(x, y)] = 0; }
+    }
+    placeVein(T_STARCRYSTAL, 3, GATE_Y, 5);
     placeVein(T_IRON, 2, GATE_Y - 6, 4);
   }
 
@@ -479,6 +504,7 @@ function pasteArea(local, x0) {
 const BORDERS = [
   { x0: AREA_W, gateX: GATE_X },
   { x0: AREA_W * 2 + BORDER_W, gateX: GATE2_X },
+  { x0: AREA_W * 3 + BORDER_W * 2, gateX: GATE3_X },
 ];
 function carveBorderAndGate(tiles, ore) {
   for (const bd of BORDERS) {
@@ -496,6 +522,10 @@ function carveBorderAndGate(tiles, ore) {
 function isGateRepaired(border) {
   return !Object.values(G.buildings).some(b => b.type === 'gate' && b.x === border.gateX && b.y === GATE_Y);
 }
+// requiresTech（研究必須の上位ゲート）に応じた修理コスト／完了フラグ名の対応表
+const GATE_COST_KEY = { gate2Blueprint: 'gate2', gate3Blueprint: 'gate3' };
+function gateRepairCost(b) { return b.requiresTech ? CONFIG.COSTS[GATE_COST_KEY[b.requiresTech]] : CONFIG.COSTS.gate; }
+function gateFlagKey(b) { return b.requiresTech ? 'q_' + GATE_COST_KEY[b.requiresTech] : 'q_gate'; }
 // ゲート拡張工事：対象の境界を上下1マスずつ追加で開通させ、幅3マスの通路にする（既存のG.tiles/G.oreを直接書き換える）
 function applyGateWideningFor(border) {
   for (const y of [GATE_Y - 1, GATE_Y + 1]) {
@@ -518,12 +548,16 @@ function genMap(seed) {
   // 第3エリア：既存資源(銅・結晶中心)の高密度配置。新資源タイプは追加しない
   const area3 = genAreaLocal(rng, { hasBase: false, copper: true, copperVeins: 14, crystalVeins: 12, ironVeins: 3, stoneVeins: 3, rockClusters: 18 });
   pasteArea(area3, AREA_W * 2 + BORDER_W * 2);
+  // 第4エリア：新資源「星晶石」中心。上位発電機のための精製チェーンの起点になる
+  const area4 = genAreaLocal(rng, { hasBase: false, starCrystal: true, starCrystalVeins: 14, crystalVeins: 6, ironVeins: 4, stoneVeins: 4, rockClusters: 20 });
+  pasteArea(area4, AREA_W * 3 + BORDER_W * 3);
   carveBorderAndGate(G.tiles, G.ore);
 
   G.buildings = {};
   G.buildings[bkey(G.base.x, G.base.y)] = { type: 'base', x: G.base.x, y: G.base.y };
   G.buildings[bkey(GATE_X, GATE_Y)] = { type: 'gate', x: GATE_X, y: GATE_Y, repaired: false };
   G.buildings[bkey(GATE2_X, GATE_Y)] = { type: 'gate', x: GATE2_X, y: GATE_Y, repaired: false, requiresTech: 'gate2Blueprint' };
+  G.buildings[bkey(GATE3_X, GATE_Y)] = { type: 'gate', x: GATE3_X, y: GATE_Y, repaired: false, requiresTech: 'gate3Blueprint' };
   G.player.x = G.base.x; G.player.y = G.base.y + 1;
   G.player.batteryUpgraded = false;
   G.beaconCleared = false;
@@ -754,7 +788,7 @@ function payCostRefund(cost) { for (const [k, v] of Object.entries(cost)) invAdd
 // =====================================================================
 // 設備の自動処理
 // =====================================================================
-const SMELT_OUT = { ironOre: 'ironPlate', stone: 'stoneBlock', copperOre: 'copperWire' };
+const SMELT_OUT = { ironOre: 'ironPlate', stone: 'stoneBlock', copperOre: 'copperWire', starCrystal: 'starCrystalRefined' };
 function furnaceAccepts(item) { return !!SMELT_OUT[item]; }
 
 // ---- 設備の入出力（採掘機バッファ／精錬炉の投入出力／保管箱／ベルト、共通操作） ----
@@ -791,6 +825,7 @@ function bldCanInsert(b, item) {
     return consumed + invCount(b.input, item) < need && invCount(b.input, item) < CONFIG.LAB_IN_CAP;
   }
   if (b.type === 'generator') return item === 'crystal' && invCount(b.input, item) < CONFIG.GEN_FUEL_CAP;
+  if (b.type === 'advGenerator') return item === 'arcCore' && invCount(b.input, item) < CONFIG.ADV_GEN_FUEL_CAP;
   if (isBeltLike(b.type)) return !b.item;
   return false;
 }
@@ -799,7 +834,7 @@ function bldInsert(b, item) {
   else if (b.type === 'furnace') invAdd(b.input, item, 1);
   else if (b.type === 'assembler') invAdd(b.input, item, 1);
   else if (b.type === 'lab') invAdd(b.input, item, 1);
-  else if (b.type === 'generator') invAdd(b.input, item, 1);
+  else if (b.type === 'generator' || b.type === 'advGenerator') invAdd(b.input, item, 1);
   else if (isBeltLike(b.type)) { b.item = item; b.progress = 0; }
 }
 // 中身プレビュー用：設備が持つ在庫系プロパティ(buffer/input/output/inv)をまとめて集計
@@ -1444,14 +1479,14 @@ function drawTile(x, y, sx, sy, s) {
     ctx.fillStyle = '#2a3148';
     ctx.fillRect(sx + u * 1.5, sy + s - u * 2.5, s - u * 3, u * 1.5);
   } else if (ORE_ITEM[t]) {
-    const colors = { [T_IRON]: ['#c9784a', '#8f4f2c'], [T_STONE]: ['#aab3bf', '#6f7885'], [T_CRYSTAL]: ['#5ee6c8', '#2a9d84'], [T_COPPER]: ['#ff9248', '#b85a1e'] };
+    const colors = { [T_IRON]: ['#c9784a', '#8f4f2c'], [T_STONE]: ['#aab3bf', '#6f7885'], [T_CRYSTAL]: ['#5ee6c8', '#2a9d84'], [T_COPPER]: ['#ff9248', '#b85a1e'], [T_STARCRYSTAL]: ['#c9a7ff', '#6c3fb5'] };
     const [c1, c2] = colors[t];
     const rich = G.ore[idx(x, y)] / (CONFIG.ORE_MAX * CONFIG.ORE_VEIN_MULT);   // 残量で粒の数を変える（連打では見た目がほとんど変わらない）
     const lumps = Math.max(2, Math.round(2 + rich * 3));
     for (let i = 0; i < lumps; i++) {
       const hx = u + hash2(x, y, 20 + i) * (s - u * 3.5);
       const hy = u + hash2(x, y, 30 + i) * (s - u * 3.5);
-      if (t === T_CRYSTAL) {
+      if (t === T_CRYSTAL || t === T_STARCRYSTAL) {
         // 結晶はひし形＋光
         ctx.fillStyle = c2;
         ctx.fillRect(sx + hx, sy + hy + u * 0.5, u * 1.6, u * 0.8);
@@ -2016,13 +2051,14 @@ function refreshOpenPanel() {
 const BUILD_CATEGORIES = [
   { id: 'basic', name: '🔧 基本',   items: ['miner', 'furnace', 'chest', 'workbench', 'belt', 'arm', 'antenna'] },
   { id: 'auto',  name: '⚙️ 自動化', items: ['assembler', 'lab', 'splitter', 'chestIn', 'fastBelt', 'minerMk2', 'fastArm', 'filterArm'] },
-  { id: 'power', name: '⚡ 電力',   items: ['generator', 'relay'] },
+  { id: 'power', name: '⚡ 電力',   items: ['generator', 'relay', 'advGenerator'] },
   { id: 'goal',  name: '📡 進行',   items: ['beacon'] },
 ];
 // 研究で解禁される設備の対応表。未解禁の間は建設メニューに出さない（Phase3.1のレシピ段階解放と同じ考え方）
 const BUILDING_RESEARCH_GATE = {
   splitter: 'splitter', chestIn: 'inputChest', fastBelt: 'fastBelt',
   minerMk2: 'minerMk2', fastArm: 'fastArm', filterArm: 'filterArm',
+  advGenerator: 'gate3Blueprint',
 };
 function buildingUnlocked(type) {
   const gate = BUILDING_RESEARCH_GATE[type];
@@ -2243,7 +2279,7 @@ function openBuilding(b, keep) {
   else if (b.type === 'gate') {
     const techOk = !b.requiresTech || !!G.research[b.requiresTech];
     const tech = b.requiresTech ? researchById(b.requiresTech) : null;
-    const cost = b.requiresTech ? CONFIG.COSTS.gate2 : CONFIG.COSTS.gate;
+    const cost = gateRepairCost(b);
     let body;
     if (b.repaired) body = '修理済み。通行できる。';
     else if (!techOk) body = `研究所で「${tech ? tech.name : '専用の研究'}」を完了すると修理できるようになる。`;
@@ -2372,10 +2408,10 @@ function openBuilding(b, keep) {
   });
   panelEl.querySelector('#pb-repair')?.addEventListener('click', () => {
     if (b.requiresTech && !G.research[b.requiresTech]) return;
-    const cost = b.requiresTech ? CONFIG.COSTS.gate2 : CONFIG.COSTS.gate;
+    const cost = gateRepairCost(b);
     if (!canAfford(cost)) return;
     payCost(cost);
-    G.flags[b.requiresTech ? 'q_gate2' : 'q_gate'] = true; // ゲート自体は撤去するため、修理済みの記録は先にフラグへ残す
+    G.flags[gateFlagKey(b)] = true; // ゲート自体は撤去するため、修理済みの記録は先にフラグへ残す
     const border = BORDERS.find(bd => bd.gateX === b.x);
     delete G.buildings[bkey(b.x, b.y)]; // 修理後はタイルを完全な平地に戻す（ベルト設置・通行が可能に）
     if (G.research.gateWidening && border) applyGateWideningFor(border); // 研究済みなら即座に3マス幅で開通
@@ -2568,7 +2604,7 @@ function applySave(d) {
   // 旧仕様（修理済みゲートが設備として残ったまま）からの互換：タイルを平地として開放する
   for (const oldGate of Object.values(G.buildings).filter(b => b.type === 'gate' && b.repaired)) {
     delete G.buildings[bkey(oldGate.x, oldGate.y)];
-    (d.flags || (d.flags = {}))[oldGate.requiresTech ? 'q_gate2' : 'q_gate'] = true;
+    (d.flags || (d.flags = {}))[gateFlagKey(oldGate)] = true;
   }
   G.player.x = d.player.x; G.player.y = d.player.y;
   G.player.battery = d.player.battery;
@@ -2716,12 +2752,53 @@ function migrateV4(d) {
   return { ...d, v: 5, ore: d.ore.map(v => v * CONFIG.ORE_VEIN_MULT) };
 }
 
+// Phase4（v5・第1〜第3エリアまで）のセーブを新マップ形式（v6・第4エリア＋星晶石＋ゲート図面）へ移行
+function migrateV5(d) {
+  const OLD_W = AREA_W * 3 + BORDER_W * 2; // v5時点のマップ幅（第1＋境界＋第2＋境界＋第3エリア）
+  const OLD_H = MAP_H;
+  const newTiles = new Uint8Array(W * H).fill(T_ROCK);
+  const newOre = new Uint16Array(W * H);
+  const newExplored = new Uint8Array(W * H);
+  for (let y = 0; y < OLD_H; y++) for (let x = 0; x < OLD_W; x++) {
+    const oi = y * OLD_W + x, ni = idx(x, y);   // 第1〜第3エリアの座標はそのまま（右側に追加するだけ）
+    newTiles[ni] = +d.tiles[oi];
+    newOre[ni] = d.ore[oi];
+    newExplored[ni] = +d.explored[oi];
+  }
+  const rng = mulberry32((d.seed || CONFIG.SEED) + 5678);
+  const area4 = genAreaLocal(rng, { hasBase: false, starCrystal: true, starCrystalVeins: 14, crystalVeins: 6, ironVeins: 4, stoneVeins: 4, rockClusters: 20 });
+  for (let y = 0; y < MAP_H; y++) for (let x = 0; x < AREA_W; x++) {
+    const ni = idx(AREA_W * 3 + BORDER_W * 3 + x, y), li = y * AREA_W + x;
+    newTiles[ni] = area4.tiles[li];
+    newOre[ni] = area4.ore[li];
+  }
+  carveBorderAndGate(newTiles, newOre);
+
+  return {
+    v: 6,
+    seed: d.seed,
+    tiles: Array.from(newTiles).join(''),
+    ore: Array.from(newOre),
+    explored: Array.from(newExplored).join(''),
+    buildings: [...d.buildings, { type: 'gate', x: GATE3_X, y: GATE_Y, repaired: false, requiresTech: 'gate3Blueprint' }],
+    player: d.player,
+    flags: d.flags || {},
+    research: d.research || {},
+    discovered: d.discovered || {},
+    cleared: !!d.cleared,
+    beaconCleared: !!d.beaconCleared,
+    time: d.time || 0,
+    lastSeen: d.lastSeen || Date.now(),
+  };
+}
+
 // v(古い) -> 移行関数 のチェーン。新しい互換性破壊的変更を追加する時はここに1エントリ足すだけでよい
 const MIGRATIONS = {
   1: migrateV1,   // v1（Phase1・単一エリア）→ v2（第1＋第2エリア＋ゲート）
   2: migrateV2,   // v2（第1＋第2エリア）→ v3（第3エリア＋ゲート図面研究）
   3: migrateV3,   // v3 → v4（素材図鑑discoveredを追加、レシピ段階解放）
   4: migrateV4,   // v4 → v5（鉱脈内部埋蔵量をORE_VEIN_MULT倍に換算、連打枯渇対策）
+  5: migrateV5,   // v5 → v6（第4エリア＋星晶石＋ゲート図面研究、Phase4電力システム）
 };
 function loadGame() {
   try {
