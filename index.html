@@ -208,7 +208,9 @@ const CONFIG = {
   OFFLINE_REPORT_MIN_SEC: 30,  // これ未満の不在時間はレポートしない
   // ---- 電力システム（Phase4） ----
   // 稼働に電力を必要とする設備の消費量（電線は敷かず、発電機/中継塔からの無線送電で賄う）
-  POWER_USE: { miner: 2, minerMk2: 4, furnace: 3, assembler: 4, lab: 3, arm: 1, fastArm: 2, filterArm: 1 },
+  POWER_USE: { miner: 1, minerMk2: 2, furnace: 1.5, assembler: 3, lab: 2, arm: 0.5, fastArm: 1, filterArm: 0.5 },
+  BASE_POWER_OUTPUT: 15, // 拠点電源の発電量（燃料切れなし・常時稼働。Phase1〜2は基本これだけで賄える想定）
+  BASE_POWER_RADIUS: 10, // 拠点電源の送電半径（タイル）。小型発電機より狭い
   GEN_OUTPUT: 20,        // 小型発電機の発電量
   GEN_RADIUS: 15,        // 小型発電機の送電半径（タイル）
   GEN_FUEL_INTERVAL: 20, // 小型発電機がエネルギー結晶1個を消費するのにかかる時間（秒）
@@ -765,13 +767,7 @@ function tryPlace(type, x, y, initDir) {
   buildMode = null;
   placePreview = null;
   updateBuildModeUI();
-  if ((type === 'generator' || type === 'advGenerator') && !G.flags.powerGraceEnded) {
-    // 発電機を初めて建てた瞬間から本当の電力需給が適用される（これまでは無条件で稼働する恩恵期間だった）
-    G.flags.powerGraceEnded = true;
-    toast(BUILDINGS[type].name + 'を設置した！これで電力網が有効になった。届く範囲の設備を稼働させ、消費が発電を超えると停電するので気をつけよう', undefined, 5000, true);
-  } else {
-    toast(BUILDINGS[type].name + 'を設置した！');
-  }
+  toast(BUILDINGS[type].name + 'を設置した！');
   markDirty(); saveGame();
 }
 
@@ -889,14 +885,18 @@ function tickGenerator(b, dt) {
   }
   b.active = !!b.job;
 }
-function isPowerNode(b) { return b.type === 'generator' || b.type === 'advGenerator' || b.type === 'relay'; }
+// 拠点電源（base）は燃料切れなしの常時稼働電源として扱う。既存セーブもbase建物は必ず存在するため、
+// 移行処理を書かなくてもロードした瞬間から拠点電源が有効になる
+function isPowerNode(b) { return b.type === 'base' || b.type === 'generator' || b.type === 'advGenerator' || b.type === 'relay'; }
 function powerNodeRadius(b) {
+  if (b.type === 'base') return CONFIG.BASE_POWER_RADIUS;
   if (b.type === 'generator') return CONFIG.GEN_RADIUS;
   if (b.type === 'advGenerator') return CONFIG.ADV_GEN_RADIUS;
   if (b.type === 'relay') return CONFIG.RELAY_RADIUS;
   return 0;
 }
 function powerNodeOutput(b) {
+  if (b.type === 'base') return CONFIG.BASE_POWER_OUTPUT;
   if (!b.active) return 0;
   if (b.type === 'generator') return CONFIG.GEN_OUTPUT;
   if (b.type === 'advGenerator') return CONFIG.ADV_GEN_OUTPUT;
@@ -927,11 +927,9 @@ function rebuildPowerTopology() {
 }
 // 各設備の稼働可否（b.powered）を毎ティック確定する：
 // 供給＝ネットワーク内で現在発電中のノードの出力合計、需要＝そのネットワークが届く消費設備の消費量合計
-// ただし、最初の発電機を建てるまでは「電力無限」の恩恵期間（G.flags.powerGraceEnded未設定）とし、
-// 新規セーブ・既存セーブ（移行時）とも「発電機を作る前から停電」という詰みを避ける
+// 拠点電源（base）が常時ネットワークの一員になっているため、恩恵期間のような特別扱いは不要
 function tickPower() {
   if (powerTopologyDirty) rebuildPowerTopology();
-  const graceActive = !G.flags.powerGraceEnded;
   for (const net of powerNetworks) { net.supply = net.nodes.reduce((s, n) => s + powerNodeOutput(n), 0); net.demand = 0; }
   const assigned = [];
   for (const b of Object.values(G.buildings)) {
@@ -940,7 +938,7 @@ function tickPower() {
     if (net) net.demand += CONFIG.POWER_USE[b.type];
     assigned.push([b, net]);
   }
-  for (const [b, net] of assigned) b.powered = graceActive ? true : !!(net && net.supply >= net.demand);
+  for (const [b, net] of assigned) b.powered = !!(net && net.supply >= net.demand);
 }
 
 // 研究所：選択中の研究のコストに従い、パックを1個ずつ消費して進行する
@@ -2125,7 +2123,9 @@ function openBuilding(b, keep) {
   if (b.type === 'base') {
     html = `<h2>🏠 拠点<button class="close-x">✕</button></h2>
       <div class="row"><div class="grow">近くにいるとバッテリーが充電される。<br>
-      <span class="cost">バッテリーが切れるとここへ強制帰還（資源の一部を失う）。</span></div></div>`;
+      <span class="cost">バッテリーが切れるとここへ強制帰還（資源の一部を失う）。</span></div></div>
+      <div class="row"><div class="grow">⚡ 拠点電源：燃料切れなしの常時稼働電源<br>
+      <span class="cost">出力${CONFIG.BASE_POWER_OUTPUT}・送電半径${CONFIG.BASE_POWER_RADIUS}マス（無線）。範囲外や消費が上回る分は小型発電機・無線中継塔で補おう。</span></div></div>`;
   }
   else if (b.type === 'miner' || b.type === 'minerMk2') {
     const veins = minerOreTiles(b);
