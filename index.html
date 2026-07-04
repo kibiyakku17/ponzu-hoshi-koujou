@@ -174,7 +174,9 @@ const CONFIG = {
   LOW_BATTERY: 25,       // 警告を出す残量
   EMPTY_PENALTY: 0.2,    // バッテリー切れ時に失う資源の割合
   MINE_PER_TAP: 1,       // 手動採掘1タップの獲得数
-  ORE_MIN: 30, ORE_MAX: 55,        // 鉱脈1タイルの埋蔵量（採掘機換算。実際の内部埋蔵量はORE_VEIN_MULT倍で保持する）
+  ORE_MIN: 105, ORE_MAX: 190,      // 鉱脈1タイルの埋蔵量（採掘機換算。実際の内部埋蔵量はORE_VEIN_MULT倍で保持する）。
+                                   // 旧値30-55だとクラスタ1つ(4〜7タイル)が採掘機1台で10〜25分程度で枯渇し、
+                                   // オフライン生産上限(4時間)に対して自動化の旨味が薄かったため、目安3.5倍(OREBOOST_MULT)に底上げした
   ORE_VEIN_MULT: 10,     // 内部埋蔵量の底上げ倍率。採掘機は1個産出ごとにこの倍率ぶん消費するため自動化の速度・総産出量は変わらないが、
                          // 手動タップ（1回1消費）の体感の減りだけがこの倍率ぶん遅くなる＝連打だけでは現実的に掘りつくせなくなる
   MINER_HINT_TAP_COUNT: 15,  // 同一鉱脈への連打がこの回数に達すると採掘機ヒントの対象になる
@@ -405,7 +407,7 @@ const BUILDINGS = {
 };
 
 const SAVE_KEY = 'ponzu_hoshi_koujou_v1';
-const SAVE_VERSION = 7;   // 現在の最新セーブ形式。マップ形状など互換性を壊す変更をした時だけ上げる
+const SAVE_VERSION = 8;   // 現在の最新セーブ形式。マップ形状など互換性を壊す変更をした時だけ上げる
 // マップ構成：第1エリア｜境界壁｜第2エリア｜境界壁｜第3エリア｜境界壁｜第4エリア（境界壁それぞれの中央にゲート）
 const AREA_W = CONFIG.AREA_W, MAP_H = CONFIG.MAP_H, BORDER_W = CONFIG.BORDER_W;
 const W = AREA_W * 4 + BORDER_W * 3, H = MAP_H;
@@ -3019,6 +3021,13 @@ function migrateV6(d) {
   return { ...d, v: 7, researchProgress };
 }
 
+// Phase4.5①（v7）：鉱脈埋蔵量を目安3.5倍に底上げ（v8）。既に残っている鉱脈(G.ore>0)のみ底上げし、
+// 既に掘りつくしてT_PLAINになったタイルはore===0のままなので対象外（元の埋蔵量が分からないため復元しない）
+const OREBOOST_MULT = 3.5;   // CONFIG.ORE_MIN/MAXの旧値(30-55)→新値(105-190)にかけた倍率と合わせてある
+function migrateV7(d) {
+  return { ...d, v: 8, ore: d.ore.map(v => v > 0 ? Math.round(v * OREBOOST_MULT) : v) };
+}
+
 // v(古い) -> 移行関数 のチェーン。新しい互換性破壊的変更を追加する時はここに1エントリ足すだけでよい
 const MIGRATIONS = {
   1: migrateV1,   // v1（Phase1・単一エリア）→ v2（第1＋第2エリア＋ゲート）
@@ -3027,6 +3036,7 @@ const MIGRATIONS = {
   4: migrateV4,   // v4 → v5（鉱脈内部埋蔵量をORE_VEIN_MULT倍に換算、連打枯渇対策）
   5: migrateV5,   // v5 → v6（第4エリア＋星晶石＋ゲート図面研究、Phase4電力システム）
   6: migrateV6,   // v6 → v7（研究所consumedを廃止、グローバル研究進捗researchProgressへ統合）
+  7: migrateV7,   // v7 → v8（鉱脈埋蔵量を目安3.5倍に底上げ、自動化ラインの早期枯渇対策）
 };
 function loadGame() {
   try {
