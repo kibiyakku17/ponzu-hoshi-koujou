@@ -366,7 +366,7 @@ const ITEMS = {
   ironPlate: { name: '鉄板',     color: '#e8b34b' },
   stoneBlock:{ name: '石ブロック', color: '#cfd6de' },
   part:      { name: '部品',     color: '#7fb2ff' },
-  copperOre: { name: '銅鉱石',   color: '#ff9248' },
+  copperOre: { name: '銅鉱石',   color: '#bd4628' },
   copperWire:{ name: '銅線',     color: '#e2703a' },
   circuit:   { name: '回路',     color: '#8fe0a0' },
   researchPack1: { name: '研究パックI',  color: '#a78bfa' },
@@ -1624,7 +1624,7 @@ function drawTile(x, y, sx, sy, s) {
     ctx.fillStyle = '#2a3148';
     ctx.fillRect(sx + u * 1.5, sy + s - u * 2.5, s - u * 3, u * 1.5);
   } else if (ORE_ITEM[t]) {
-    const colors = { [T_IRON]: ['#c9784a', '#8f4f2c'], [T_STONE]: ['#aab3bf', '#6f7885'], [T_CRYSTAL]: ['#5ee6c8', '#2a9d84'], [T_COPPER]: ['#ff9248', '#b85a1e'], [T_STARCRYSTAL]: ['#c9a7ff', '#6c3fb5'] };
+    const colors = { [T_IRON]: ['#c9784a', '#8f4f2c'], [T_STONE]: ['#aab3bf', '#6f7885'], [T_CRYSTAL]: ['#5ee6c8', '#2a9d84'], [T_COPPER]: ['#bd4628', '#822c17'], [T_STARCRYSTAL]: ['#c9a7ff', '#6c3fb5'] };
     const [c1, c2] = colors[t];
     const rich = G.ore[idx(x, y)] / (CONFIG.ORE_MAX * CONFIG.ORE_VEIN_MULT);   // 残量で粒の数を変える（連打では見た目がほとんど変わらない）
     const lumps = Math.max(2, Math.round(2 + rich * 3));
