@@ -420,7 +420,7 @@ const BUILDINGS = {
 };
 
 const SAVE_KEY = 'ponzu_hoshi_koujou_v1';
-const SAVE_VERSION = 8;   // 現在の最新セーブ形式。マップ形状など互換性を壊す変更をした時だけ上げる
+const SAVE_VERSION = 9;   // 現在の最新セーブ形式。マップ形状など互換性を壊す変更をした時だけ上げる
 // マップ構成：第1エリア｜境界壁｜第2エリア｜境界壁｜第3エリア｜境界壁｜第4エリア（境界壁それぞれの中央にゲート）
 const AREA_W = CONFIG.AREA_W, MAP_H = CONFIG.MAP_H, BORDER_W = CONFIG.BORDER_W;
 const W = AREA_W * 4 + BORDER_W * 3, H = MAP_H;
@@ -630,6 +630,19 @@ function carveBorderAndGate(tiles, ore) {
     }
   }
 }
+// マップ全体の外周（x=0付近／x=W-1付近／y=0付近／y=H-1付近）を、境界と同じ厚み(BORDER_W)の岩で封鎖する。
+// エリア間の境界と違いゲート（出入り口）は作らない完全な壁。「ここが世界の果て」と一目でわかるようにする
+// （tilesは任意の配列に対して実行できる：移行処理でも再利用）
+function sealOuterBorder(tiles, ore) {
+  for (let y = 0; y < H; y++) {
+    for (let x = 0; x < BORDER_W; x++) { tiles[idx(x, y)] = T_ROCK; ore[idx(x, y)] = 0; }
+    for (let x = W - BORDER_W; x < W; x++) { tiles[idx(x, y)] = T_ROCK; ore[idx(x, y)] = 0; }
+  }
+  for (let x = 0; x < W; x++) {
+    for (let y = 0; y < BORDER_W; y++) { tiles[idx(x, y)] = T_ROCK; ore[idx(x, y)] = 0; }
+    for (let y = H - BORDER_W; y < H; y++) { tiles[idx(x, y)] = T_ROCK; ore[idx(x, y)] = 0; }
+  }
+}
 // このborderのゲートが既に修理済み（＝ゲート建物が撤去済み）かどうか
 function isGateRepaired(border) {
   return !Object.values(G.buildings).some(b => b.type === 'gate' && b.x === border.gateX && b.y === GATE_Y);
@@ -664,6 +677,7 @@ function genMap(seed) {
   const area4 = genAreaLocal(rng, { hasBase: false, starCrystal: true, starCrystalVeins: 14, crystalVeins: 6, ironVeins: 4, stoneVeins: 4, rockClusters: 20 });
   pasteArea(area4, AREA_W * 3 + BORDER_W * 3);
   carveBorderAndGate(G.tiles, G.ore);
+  sealOuterBorder(G.tiles, G.ore);
 
   G.buildings = {};
   G.buildings[bkey(G.base.x, G.base.y)] = { type: 'base', x: G.base.x, y: G.base.y };
@@ -3074,6 +3088,18 @@ function migrateV7(d) {
   return { ...d, v: 8, ore: d.ore.map(v => v > 0 ? Math.round(v * OREBOOST_MULT) : v) };
 }
 
+// Phase4.5⑥（v8）：マップ外周をエリア境界と同じ岩で封鎖する（v9）。既存の設備があるタイルは
+// 踏み荒らさないよう、封鎖前に一時退避して封鎖後に復元する
+function migrateV8(d) {
+  const tiles = new Uint8Array(W * H);
+  for (let i = 0; i < d.tiles.length; i++) tiles[i] = +d.tiles[i];
+  const ore = new Uint16Array(d.ore);
+  const saved = d.buildings.map(b => ({ x: b.x, y: b.y, t: tiles[idx(b.x, b.y)], o: ore[idx(b.x, b.y)] }));
+  sealOuterBorder(tiles, ore);
+  for (const s of saved) { tiles[idx(s.x, s.y)] = s.t; ore[idx(s.x, s.y)] = s.o; }
+  return { ...d, v: 9, tiles: Array.from(tiles).join(''), ore: Array.from(ore) };
+}
+
 // v(古い) -> 移行関数 のチェーン。新しい互換性破壊的変更を追加する時はここに1エントリ足すだけでよい
 const MIGRATIONS = {
   1: migrateV1,   // v1（Phase1・単一エリア）→ v2（第1＋第2エリア＋ゲート）
@@ -3083,6 +3109,7 @@ const MIGRATIONS = {
   5: migrateV5,   // v5 → v6（第4エリア＋星晶石＋ゲート図面研究、Phase4電力システム）
   6: migrateV6,   // v6 → v7（研究所consumedを廃止、グローバル研究進捗researchProgressへ統合）
   7: migrateV7,   // v7 → v8（鉱脈埋蔵量を目安3.5倍に底上げ、自動化ラインの早期枯渇対策）
+  8: migrateV8,   // v8 → v9（マップ外周を岩で封鎖、「世界の果て」を視覚的に明確化）
 };
 // dをMIGRATIONSチェーンで最新のSAVE_VERSIONまで引き上げる。到達できなければnullを返す。
 // loadGame（localStorage起動時）と設定画面の手動「読み込む」（JSON貼り付け）の両方から共有する
