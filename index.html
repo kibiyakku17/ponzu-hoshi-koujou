@@ -718,9 +718,11 @@ function tryMine(x, y) {
   G.ore[idx(x, y)] -= CONFIG.MINE_PER_TAP;
   invAdd(G.player.inv, item, CONFIG.MINE_PER_TAP);
   fx.push({ type: 'pop', x, y, txt: '+1 ' + ITEMS[item].name, t: 0 });
+  sfxMine();
   if (G.ore[idx(x, y)] <= 0) {
     G.tiles[idx(x, y)] = T_PLAIN;
     toast(ITEMS[item].name + 'の鉱脈を掘りつくした');
+    sfxOreDepleted();
   }
   markDirty();
 }
@@ -848,6 +850,7 @@ function tryPlace(type, x, y, initDir) {
   placePreview = null;
   updateBuildModeUI();
   toast(BUILDINGS[type].name + 'を設置した！');
+  sfxPlace();
   markDirty(); saveGame();
 }
 
@@ -1018,17 +1021,22 @@ function tickPower() {
     if (net) net.demand += CONFIG.POWER_USE[b.type];
     assigned.push([b, net]);
   }
+  let newlyUnpowered = false;
   for (const [b, net] of assigned) {
     const newPowered = !!(net && net.supply >= net.demand);
-    // 初めて停電を経験した瞬間に、小型発電機・無線中継塔の存在を一度だけ案内する
-    // （序盤から強制的に発電機を作らせず、実際に電力が必要になったタイミングで気づかせる）
-    if (!newPowered && b.powered !== false && !G.flags.hintPowerShown) {
-      G.flags.hintPowerShown = true;
-      toast('⚡ 電力が足りない！🔨建設メニューの「基本」から小型発電機を、「電力」から無線中継塔を作って電力網を広げよう', undefined, 5500, true);
-      saveGame();
+    if (!newPowered && b.powered !== false) {
+      newlyUnpowered = true;   // このtickで新たに停電した設備がある（SEは1回にまとめる）
+      // 初めて停電を経験した瞬間に、小型発電機・無線中継塔の存在を一度だけ案内する
+      // （序盤から強制的に発電機を作らせず、実際に電力が必要になったタイミングで気づかせる）
+      if (!G.flags.hintPowerShown) {
+        G.flags.hintPowerShown = true;
+        toast('⚡ 電力が足りない！🔨建設メニューの「基本」から小型発電機を、「電力」から無線中継塔を作って電力網を広げよう', undefined, 5500, true);
+        saveGame();
+      }
     }
     b.powered = newPowered;
   }
+  if (newlyUnpowered) sfxPowerOut();
 }
 
 // 研究所：選択中の研究のコストに従い、パックを1個ずつ消費して進行する
@@ -1069,6 +1077,7 @@ function tickLab(b, dt) {
           for (const bd of BORDERS) if (isGateRepaired(bd)) applyGateWideningFor(bd);
         }
         toast(`🔬「${tech.name}」の研究が完了した！`);
+        sfxResearchDone();
         saveGame();
       }
     }
@@ -1129,6 +1138,7 @@ function tickAssembler(b, dt) {
       invAdd(b.output, b.job, jobRecipe ? jobRecipe.outN : 1);
       b.job = null; b.progress = 0;
       markDirty();
+      sfxProduce();
     }
   }
 }
@@ -1254,6 +1264,7 @@ function tickFurnace(b, dt) {
       invAdd(b.output, b.job, 1);
       b.job = null; b.progress = 0;
       markDirty();
+      sfxProduce();
     }
   }
 }
@@ -1300,6 +1311,7 @@ function update(dt) {
     if (p.battery <= lowThreshold && !lowWarned && p.battery > 0) {
       lowWarned = true;
       toast('⚠️ バッテリー残りわずか！拠点に戻って充電しよう', 'warn');
+      sfxLowBattery();
     }
     // バッテリー切れ → 強制帰還
     if (p.battery <= 0) forcedReturn();
@@ -1360,6 +1372,7 @@ function forcedReturn() {
   }
   centerCamera(true);
   toast('🔋 バッテリー切れ！緊急帰還した（資源の一部を失った…）', 'danger');
+  sfxBatteryDead();
   lowWarned = false;
   markDirty();
 }
@@ -2510,11 +2523,14 @@ function openBuilding(b, keep) {
   panelEl.querySelectorAll('[data-take10]').forEach(btn => btn.addEventListener('click', () => chestMove(btn.dataset.take10, 10, false)));
   const craft = (ri, times) => {
     const r = CONFIG.RECIPES[ri];
+    let made = 0;
     for (let i = 0; i < times; i++) {
       if (!canAfford(r.in)) break;
       payCost(r.in);
       invAdd(inv, r.out, r.outN);
+      made++;
     }
+    if (made > 0) sfxCraft();
     markDirty(); saveGame();
   };
   panelEl.querySelectorAll('[data-craft]').forEach(btn => btn.addEventListener('click', () => craft(+btn.dataset.craft, 1)));
@@ -2613,6 +2629,7 @@ function activateAntenna(b) {
   G.cleared = true;
   closePanel();
   saveGame();
+  sfxBigAchieve();
   document.getElementById('clear-title').textContent = '救難信号 送信成功！';
   document.getElementById('clear-msg').innerHTML = 'アンテナが起動し、信号は星の海を越えていく。<br>' +
     '探査ロボ・ぽん太はこの星で、迎えの船を待ちながら<br>工場をひらきつづけるのだった……。<br><br>― Phase 1 クリア！おめでとう！ ―';
@@ -2624,6 +2641,7 @@ function activateBeacon(b) {
   G.beaconCleared = true;
   closePanel();
   saveGame();
+  sfxBigAchieve();
   document.getElementById('clear-title').textContent = '誘導ビーコン 起動成功！';
   document.getElementById('clear-msg').innerHTML = 'ビーコンの光が夜空を貫き、迎えの船へ道しるべを示す。<br>' +
     '探査ロボ・ぽん太の物語は、まだまだ続いていく……。<br><br>― Phase 2 クリア！おめでとう！ ―';
