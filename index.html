@@ -830,15 +830,17 @@ function tryPlace(type, x, y, initDir) {
   if (buildingAt(x, y)) { toast('すでに設備がある', 'warn'); return; }
   if (Math.round(G.player.x) === x && Math.round(G.player.y) === y) { toast('ロボの足元には置けない', 'warn'); return; }
   const t = G.tiles[idx(x, y)];
+  let minerMixedOreNames = null;   // 範囲内に複数種類の鉱脈がある場合、設置後に警告するため保持しておく
   if (type === 'miner' || type === 'minerMk2') {
     if (t === T_ROCK) { toast('岩の上には置けない', 'warn'); return; }
-    let hasOre = false;
+    const oreTypes = new Set();
     const R = type === 'minerMk2' ? CONFIG.MINER_MK2_RADIUS : CONFIG.MINER_RADIUS;
-    for (let dy = -R; dy <= R && !hasOre; dy++) for (let dx = -R; dx <= R; dx++) {
+    for (let dy = -R; dy <= R; dy++) for (let dx = -R; dx <= R; dx++) {
       const nx = x + dx, ny = y + dy;
-      if (inMap(nx, ny) && ORE_ITEM[G.tiles[idx(nx, ny)]] && G.ore[idx(nx, ny)] > 0) { hasOre = true; break; }
+      if (inMap(nx, ny) && ORE_ITEM[G.tiles[idx(nx, ny)]] && G.ore[idx(nx, ny)] > 0) oreTypes.add(ORE_ITEM[G.tiles[idx(nx, ny)]]);
     }
-    if (!hasOre) { toast(`採掘機は鉱脈から${R}マス以内に置く`, 'warn'); return; }
+    if (oreTypes.size === 0) { toast(`採掘機は鉱脈から${R}マス以内に置く`, 'warn'); return; }
+    if (oreTypes.size >= 2) minerMixedOreNames = [...oreTypes].map(k => ITEMS[k].name).join('と');
   } else {
     if (t === T_ROCK) { toast('岩の上には置けない', 'warn'); return; }
     if (ORE_ITEM[t]) { toast('鉱脈の上に置けるのは採掘機だけ', 'warn'); return; }
@@ -869,7 +871,8 @@ function tryPlace(type, x, y, initDir) {
   buildMode = null;
   placePreview = null;
   updateBuildModeUI();
-  toast(BUILDINGS[type].name + 'を設置した！');
+  if (minerMixedOreNames) toast(`⚠️ 設置した！この範囲には${minerMixedOreNames}の鉱脈が混在しています（ラインが混ざるかも）`, 'warn', 4200);
+  else toast(BUILDINGS[type].name + 'を設置した！');
   sfxPlace();
   markDirty(); saveGame();
 }
