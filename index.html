@@ -177,6 +177,7 @@ const CONFIG = {
   ORE_MIN: 105, ORE_MAX: 190,      // 鉱脈1タイルの埋蔵量（採掘機換算。実際の内部埋蔵量はORE_VEIN_MULT倍で保持する）。
                                    // 旧値30-55だとクラスタ1つ(4〜7タイル)が採掘機1台で10〜25分程度で枯渇し、
                                    // オフライン生産上限(4時間)に対して自動化の旨味が薄かったため、目安3.5倍(OREBOOST_MULT)に底上げした
+  ORE_TYPE_MIN_GAP: 3,   // 新規マップ生成時、別タイプの鉱脈とこのタイル数以内には配置しない（採掘機の範囲でラインが混ざりにくくする）。新規マップにのみ影響
   ORE_VEIN_MULT: 10,     // 内部埋蔵量の底上げ倍率。採掘機は1個産出ごとにこの倍率ぶん消費するため自動化の速度・総産出量は変わらないが、
                          // 手動タップ（1回1消費）の体感の減りだけがこの倍率ぶん遅くなる＝連打だけでは現実的に掘りつくせなくなる
   MINER_HINT_TAP_COUNT: 15,  // 同一鉱脈への連打がこの回数に達すると採掘機ヒントの対象になる
@@ -521,10 +522,22 @@ function genAreaLocal(rng, opts) {
       x += Math.floor(rng() * 3) - 1; y += Math.floor(rng() * 3) - 1;
     }
   }
-  function placeVein(type, cx, cy, size) {
+  // (x,y)からminGapタイル以内に、type以外の鉱脈タイプが既に置かれていないか調べる（0以下なら常にfalse＝制限なし）
+  function nearDifferentOre(x, y, type, minGap) {
+    if (!minGap || minGap <= 0) return false;
+    for (let dy = -minGap; dy <= minGap; dy++) for (let dx = -minGap; dx <= minGap; dx++) {
+      const nx = x + dx, ny = y + dy;
+      if (!linMap(nx, ny)) continue;
+      const nt = tiles[lidx(nx, ny)];
+      if (ORE_ITEM[nt] && nt !== type) return true;
+    }
+    return false;
+  }
+  // minGapを指定した呼び出しのみ、別タイプの鉱脈との最低間隔を守る（拠点/ゲート横の保証枠は指定せず優先する）
+  function placeVein(type, cx, cy, size, minGap) {
     let x = cx, y = cy, placed = 0;
     for (let s = 0; s < size * 3 && placed < size; s++) {
-      if (linMap(x, y) && tiles[lidx(x, y)] === T_PLAIN) {
+      if (linMap(x, y) && tiles[lidx(x, y)] === T_PLAIN && !nearDifferentOre(x, y, type, minGap)) {
         tiles[lidx(x, y)] = type;
         ore[lidx(x, y)] = (CONFIG.ORE_MIN + Math.floor(rng() * (CONFIG.ORE_MAX - CONFIG.ORE_MIN))) * CONFIG.ORE_VEIN_MULT;
         placed++;
@@ -535,19 +548,20 @@ function genAreaLocal(rng, opts) {
   }
 
   const bx = 24, by = 24; // 第1エリアの拠点位置（G.baseと一致させる）
+  const gap = CONFIG.ORE_TYPE_MIN_GAP;
   const ironN = opts.ironVeins ?? 7, stoneN = opts.stoneVeins ?? 7, crystalN = opts.crystalVeins ?? 5;
   const copperN = opts.copper ? (opts.copperVeins ?? 8) : 0;
   const starN = opts.starCrystal ? (opts.starCrystalVeins ?? 14) : 0;
-  for (let i = 0; i < ironN; i++) placeVein(T_IRON, Math.floor(rng() * LN), Math.floor(rng() * MAP_H), 4 + Math.floor(rng() * 4));
-  for (let i = 0; i < stoneN; i++) placeVein(T_STONE, Math.floor(rng() * LN), Math.floor(rng() * MAP_H), 4 + Math.floor(rng() * 4));
+  for (let i = 0; i < ironN; i++) placeVein(T_IRON, Math.floor(rng() * LN), Math.floor(rng() * MAP_H), 4 + Math.floor(rng() * 4), gap);
+  for (let i = 0; i < stoneN; i++) placeVein(T_STONE, Math.floor(rng() * LN), Math.floor(rng() * MAP_H), 4 + Math.floor(rng() * 4), gap);
   for (let i = 0; i < crystalN; i++) {
     let x, y, guard = 0;
     do { x = Math.floor(rng() * LN); y = Math.floor(rng() * MAP_H); }
     while (opts.hasBase && Math.hypot(x - bx, y - by) < 12 && ++guard < 50);
-    placeVein(T_CRYSTAL, x, y, 3 + Math.floor(rng() * 3));
+    placeVein(T_CRYSTAL, x, y, 3 + Math.floor(rng() * 3), gap);
   }
-  for (let i = 0; i < copperN; i++) placeVein(T_COPPER, Math.floor(rng() * LN), Math.floor(rng() * MAP_H), 4 + Math.floor(rng() * 4));
-  for (let i = 0; i < starN; i++) placeVein(T_STARCRYSTAL, Math.floor(rng() * LN), Math.floor(rng() * MAP_H), 4 + Math.floor(rng() * 4));
+  for (let i = 0; i < copperN; i++) placeVein(T_COPPER, Math.floor(rng() * LN), Math.floor(rng() * MAP_H), 4 + Math.floor(rng() * 4), gap);
+  for (let i = 0; i < starN; i++) placeVein(T_STARCRYSTAL, Math.floor(rng() * LN), Math.floor(rng() * MAP_H), 4 + Math.floor(rng() * 4), gap);
 
   if (opts.hasBase) {
     for (let dy = -3; dy <= 3; dy++) for (let dx = -3; dx <= 3; dx++) {
