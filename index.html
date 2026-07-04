@@ -2067,7 +2067,23 @@ function commitEraseDrag(tiles) {
 
 let ptr = null;
 let dragPath = null;   // {mode:'belt'|'erase', beltType, tiles:[{x,y,dir}]} 連続設置/撤去のプレビュー
+// 同時タッチ数を数えて1本指/2本指を判定する（設置モード中でも2本指ドラッグで見渡せるように）
+const touches = new Map();   // pointerId -> {x,y}
+let panState = null;         // 2本指カメラパン中 {cx,cy,mx,my}
+function touchMidpoint() {
+  const pts = Array.from(touches.values());
+  return { x: pts.reduce((s, p) => s + p.x, 0) / pts.length, y: pts.reduce((s, p) => s + p.y, 0) / pts.length };
+}
 canvas.addEventListener('pointerdown', e => {
+  touches.set(e.pointerId, { x: e.clientX, y: e.clientY });
+  if (touches.size >= 2) {
+    // 2本指目が触れた瞬間：進行中の設置/撤去ドラッグは確定させずに中断し、カメラパンへ切り替える
+    ptr = null; dragPath = null;
+    const mid = touchMidpoint();
+    panState = { cx: cam.x, cy: cam.y, mx: mid.x, my: mid.y };
+    followCam = false;
+    return;
+  }
   const paint = paintModeActive();
   ptr = { id: e.pointerId, sx: e.clientX, sy: e.clientY, cx: cam.x, cy: cam.y, drag: false, paint };
   if (paint) {
@@ -2077,6 +2093,14 @@ canvas.addEventListener('pointerdown', e => {
   }
 });
 canvas.addEventListener('pointermove', e => {
+  if (touches.has(e.pointerId)) touches.set(e.pointerId, { x: e.clientX, y: e.clientY });
+  if (panState) {
+    if (touches.size < 2) return;   // 1本指に減った後は次のpointerupでパン終了するまで何もしない
+    const mid = touchMidpoint();
+    cam.x = panState.cx - (mid.x - panState.mx) / tilePx;
+    cam.y = panState.cy - (mid.y - panState.my) / tilePx;
+    return;
+  }
   if (!ptr || e.pointerId !== ptr.id) return;
   const dx = e.clientX - ptr.sx, dy = e.clientY - ptr.sy;
   if (!ptr.drag && Math.hypot(dx, dy) > 12) { ptr.drag = true; if (!ptr.paint) followCam = false; }
@@ -2100,6 +2124,11 @@ canvas.addEventListener('pointermove', e => {
   }
 });
 canvas.addEventListener('pointerup', e => {
+  touches.delete(e.pointerId);
+  if (panState) {
+    if (touches.size === 0) panState = null;   // 両方の指が離れたら2本指パンを終了（設置・タップは発生させない）
+    return;
+  }
   if (!ptr || e.pointerId !== ptr.id) return;
   if (!ptr.drag) {
     const [tx, ty] = screenToTile(e.clientX, e.clientY);
@@ -2110,7 +2139,11 @@ canvas.addEventListener('pointerup', e => {
   }
   ptr = null; dragPath = null;
 });
-canvas.addEventListener('pointercancel', () => { ptr = null; dragPath = null; });
+canvas.addEventListener('pointercancel', e => {
+  touches.delete(e.pointerId);
+  if (touches.size === 0) panState = null;
+  ptr = null; dragPath = null;
+});
 
 document.getElementById('btn-zoomin').onclick = () => { tilePx = Math.min(64, Math.round(tilePx * 1.25)); };
 document.getElementById('btn-zoomout').onclick = () => { tilePx = Math.max(16, Math.round(tilePx / 1.25)); };
