@@ -100,6 +100,14 @@
   #toast.warn{border-color:var(--warn);color:var(--warn);}
   #toast.danger{border-color:var(--danger);color:var(--danger);}
 
+  /* ===== 更新通知（トーストと違い自動で消えない） ===== */
+  #update-banner{position:fixed;left:10px;right:10px;bottom:calc(env(safe-area-inset-bottom,0) + 132px);
+    background:rgba(14,77,64,.95);border:1px solid var(--accent);color:var(--accent);
+    border-radius:10px;padding:10px 12px;font-size:13px;z-index:16;display:none;
+    align-items:center;gap:8px;}
+  #update-banner-text{flex:1;}
+  #update-banner-close{background:none;border:none;color:var(--accent);font-size:16px;padding:2px 6px;flex:0 0 auto;}
+
   /* ===== クリア画面 ===== */
   #clear-overlay{position:fixed;inset:0;background:#04060e;z-index:50;display:none;
     flex-direction:column;align-items:center;justify-content:center;gap:14px;padding:20px;}
@@ -145,6 +153,10 @@
 <div id="panel-back"></div>
 <div id="panel"></div>
 <div id="toast"></div>
+<div id="update-banner">
+  <span id="update-banner-text">🆕 新しいバージョンがあります。タップして更新</span>
+  <button id="update-banner-close">✕</button>
+</div>
 
 <div id="clear-overlay">
   <canvas id="clear-canvas" width="420" height="320"></canvas>
@@ -3139,6 +3151,32 @@ function showOfflineReport(seconds, before, after) {
 }
 
 // =====================================================================
+// バージョンチェック（インストール済みPWAにコード更新が反映されない対策）
+// デプロイのたびにGAME_VERSIONを上げると、開いたままのPWAに更新通知が出せる
+// =====================================================================
+const GAME_VERSION = '4.5.0';
+async function checkForUpdate() {
+  try {
+    // cache無視で自身(index.html)を再取得し、埋め込まれたGAME_VERSION表記を比較する
+    const res = await fetch(location.pathname + '?_v=' + Date.now(), { cache: 'no-store' });
+    if (!res.ok) return;
+    const text = await res.text();
+    const m = text.match(/const GAME_VERSION = '([^']+)'/);
+    if (m && m[1] && m[1] !== GAME_VERSION) {
+      document.getElementById('update-banner').style.display = 'flex';
+    }
+  } catch (e) { /* オフライン等は無視。次回起動時にまた確認する */ }
+}
+document.getElementById('update-banner-text').onclick = () => {
+  // Phase3.2の設定リセット修正と同じ考え方：クエリを変えて別URL扱いにし、キャッシュを避けて確実に最新化する
+  location.href = location.pathname + '?updated=' + Date.now();
+};
+document.getElementById('update-banner-close').onclick = (e) => {
+  e.stopPropagation();
+  document.getElementById('update-banner').style.display = 'none';
+};
+
+// =====================================================================
 // 起動
 // =====================================================================
 document.addEventListener('visibilitychange', () => { if (document.hidden) saveGame(); });
@@ -3146,6 +3184,7 @@ window.addEventListener('pagehide', () => saveGame());
 
 function boot() {
   resize();
+  checkForUpdate();
   const hadSave = loadGame();
   if (!hadSave) {
     genMap(CONFIG.SEED);
