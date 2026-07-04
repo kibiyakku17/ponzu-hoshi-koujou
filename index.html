@@ -63,6 +63,7 @@
     color:var(--text);border-radius:12px;padding:12px 0;font-size:15px;font-weight:600;}
   .big-btn:active{background:var(--panel2);}
   #cancel-build{display:none;background:#3d2030;border-color:var(--danger);color:var(--danger);}
+  #btn-undo-place{display:none;background:#3d3320;border-color:var(--warn);color:var(--warn);}
   #btn-confirm-preview{background:#0e4d40;border-color:var(--accent);color:var(--accent);}
 
   #zoom-btns{position:fixed;right:10px;bottom:calc(env(safe-area-inset-bottom,0) + 110px);
@@ -136,6 +137,7 @@
     <button class="big-btn" id="btn-erase">🗑 撤去</button>
     <button class="big-btn" id="btn-rotate-preview" style="display:none">🔄 向きを変える</button>
     <button class="big-btn" id="btn-confirm-preview" style="display:none">✅ この向きで設置</button>
+    <button class="big-btn" id="btn-undo-place" style="display:none">↩️ 元に戻す</button>
     <button class="big-btn" id="cancel-build">✕ 設置キャンセル</button>
   </div>
 </div>
@@ -793,6 +795,7 @@ let eraseMode = false;
 // 向きを持つ設備は、置く前に向きプレビュー→確定の2段階にする（初見で「置いたのに動かない」を防ぐ）
 const DIRECTIONAL_TYPES = new Set(['arm', 'fastArm', 'filterArm', 'belt', 'fastBelt', 'splitter']);
 let placePreview = null; // {type,x,y,dir} 設置確定前のプレビュー
+let lastPlaced = null;   // {type,x,y} 直前に置いた1タイル分。「元に戻す」で設置モードを抜けずに取り消せるようにする
 
 function canAfford(cost) {
   return Object.entries(cost).every(([k, v]) => invCount(G.player.inv, k) >= v);
@@ -846,6 +849,7 @@ function tryPlace(type, x, y, initDir) {
   if (type === 'generator' || type === 'advGenerator') { b.input = {}; b.job = null; b.progress = 0; b.active = false; }
   G.buildings[bkey(x, y)] = b;
   markPowerTopologyDirty();
+  lastPlaced = { type, x, y };
   buildMode = null;
   placePreview = null;
   updateBuildModeUI();
@@ -869,6 +873,17 @@ function removeBuilding(b) {
   markDirty(); saveGame();
 }
 function payCostRefund(cost) { for (const [k, v] of Object.entries(cost)) invAdd(G.player.inv, k, v); }
+// 「元に戻す」：lastPlacedが指す1タイル分だけを、設置モードを抜けずに取り消す
+function undoLastPlacement() {
+  if (!lastPlaced) return;
+  const { type, x, y } = lastPlaced;
+  lastPlaced = null;
+  const b = buildingAt(x, y);
+  if (!b || b.type !== type) { toast('その設備はもう無い', 'warn'); updateBuildModeUI(); return; }
+  removeBuilding(b);
+  toast(BUILDINGS[type].name + 'を元に戻した');
+  updateBuildModeUI();
+}
 
 // =====================================================================
 // 設備の自動処理
@@ -2048,9 +2063,10 @@ function commitBeltDrag(tiles, beltType) {
     if (!canAfford(CONFIG.COSTS[beltType])) break;
     payCost(CONFIG.COSTS[beltType]);
     G.buildings[bkey(t.x, t.y)] = { type: beltType, x: t.x, y: t.y, dir: t.dir, item: null, progress: 0 };
+    lastPlaced = { type: beltType, x: t.x, y: t.y };   // 「元に戻す」は直近1タイルだけを対象にする
     placed++;
   }
-  if (placed > 0) { markDirty(); saveGame(); }
+  if (placed > 0) { updateBuildModeUI(); markDirty(); saveGame(); }
   toast(placed > 0 ? `${BUILDINGS[beltType].name}を${placed}個設置した` : '設置できなかった（岩・鉱脈・設備・資材不足）', placed > 0 ? undefined : 'warn');
 }
 // ドラッグで拾った経路上の設備をまとめて撤去（拠点・ゲートはスキップして継続）
@@ -2151,16 +2167,17 @@ document.getElementById('btn-center').onclick = () => { followCam = true; center
 document.getElementById('btn-settings').onclick = () => openSettings();
 document.getElementById('btn-build').onclick = () => openBuildMenu();
 document.getElementById('btn-erase').onclick = () => {
-  eraseMode = true; buildMode = null; updateBuildModeUI();
+  eraseMode = true; buildMode = null; lastPlaced = null; updateBuildModeUI();
   toast('ドラッグ（またはタップ）で設備を撤去（拠点・ゲートは対象外）');
 };
-document.getElementById('cancel-build').onclick = () => { buildMode = null; eraseMode = false; placePreview = null; updateBuildModeUI(); };
+document.getElementById('cancel-build').onclick = () => { buildMode = null; eraseMode = false; placePreview = null; lastPlaced = null; updateBuildModeUI(); };
 document.getElementById('btn-rotate-preview').onclick = () => {
   if (placePreview) { placePreview.dir = (placePreview.dir + 1) % 4; markDirty(); }
 };
 document.getElementById('btn-confirm-preview').onclick = () => {
   if (placePreview) tryPlace(placePreview.type, placePreview.x, placePreview.y, placePreview.dir);
 };
+document.getElementById('btn-undo-place').onclick = () => undoLastPlacement();
 
 function updateBuildModeUI() {
   const active = !!buildMode || eraseMode;
@@ -2169,9 +2186,11 @@ function updateBuildModeUI() {
   document.getElementById('btn-erase').style.display = (active || previewing) ? 'none' : 'block';
   document.getElementById('btn-rotate-preview').style.display = previewing ? 'block' : 'none';
   document.getElementById('btn-confirm-preview').style.display = previewing ? 'block' : 'none';
+  // 誤設置に気づいた時、設置モードを抜けずにその場で直近1タイル分だけ取り消せるボタン
+  document.getElementById('btn-undo-place').style.display = (buildMode && !previewing && lastPlaced) ? 'block' : 'none';
   const cancelBtn = document.getElementById('cancel-build');
   cancelBtn.style.display = (active || previewing) ? 'block' : 'none';
-  cancelBtn.textContent = eraseMode ? '✕ 撤去終了' : '✕ 設置キャンセル';
+  cancelBtn.textContent = eraseMode ? '✕ 撤去終了' : '✕ 設置モードを終了';
   if (buildMode && !previewing) toast(BUILDINGS[buildMode].name + 'を置く場所をタップ' + (buildMode === 'belt' ? '（ドラッグで連続設置）' : ''));
   else if (previewing) toast('向きを確認 → 同じ場所タップか🔄で回転、✅で設置確定');
 }
@@ -2270,7 +2289,7 @@ function openBuildMenu(keep) {
     btn.onclick = () => { buildMenuTab = btn.dataset.tab; openBuildMenu(); };
   });
   panelEl.querySelectorAll('[data-build]').forEach(btn => {
-    btn.onclick = () => { buildMode = btn.dataset.build; placePreview = null; closePanel(); updateBuildModeUI(); };
+    btn.onclick = () => { buildMode = btn.dataset.build; placePreview = null; lastPlaced = null; closePanel(); updateBuildModeUI(); };
   });
 }
 
