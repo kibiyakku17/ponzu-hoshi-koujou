@@ -271,6 +271,81 @@ const CONFIG = {
 };
 /* ▲▲▲ 調整パラメータここまで ▲▲▲ */
 
+// =====================================================================
+// サウンド（外部音声ファイルは使わずWeb Audio APIのoscillatorでコード生成する）
+// =====================================================================
+const SFX_KEY = 'ponzu_hoshi_koujou_sfx';
+let sfxEnabled = localStorage.getItem(SFX_KEY) !== '0';   // 未設定ならデフォルトON
+let audioCtx = null;
+function ensureAudioCtx() {
+  if (audioCtx) return audioCtx;
+  try { audioCtx = new (window.AudioContext || window.webkitAudioContext)(); } catch (e) { audioCtx = null; }
+  return audioCtx;
+}
+// 初回タップ/タッチ操作でAudioContextを起動・再開する（iOS Safari等はユーザー操作なしに音を鳴らせないため）
+function unlockAudio() {
+  const ctx = ensureAudioCtx();
+  if (!ctx) return;
+  if (ctx.state === 'suspended') ctx.resume();
+  // iOS Safariはresume()だけでは有効化しきれないことがあるため、無音バッファを1つ再生して完全に起こす
+  const buf = ctx.createBuffer(1, 1, 22050);
+  const src = ctx.createBufferSource();
+  src.buffer = buf;
+  src.connect(ctx.destination);
+  src.start(0);
+}
+['pointerdown', 'touchstart', 'mousedown'].forEach(ev => document.addEventListener(ev, unlockAudio, { once: true, passive: true }));
+
+const SFX_MASTER_VOL = 0.14;   // 全体の音量係数。うるさくならないよう控えめに
+// 単音を鳴らす: freq=周波数(Hz), duration=長さ(秒), type=波形, delay=開始を遅らせる秒数（和音用）, vol=個別音量(0〜1)
+function playTone(freq, duration, type, delay, vol) {
+  if (!sfxEnabled) return;
+  const ctx = ensureAudioCtx();
+  if (!ctx || ctx.state === 'suspended') return;   // 未アンロックならエラーにせず黙って諦める
+  const t0 = ctx.currentTime + (delay || 0);
+  const osc = ctx.createOscillator();
+  const gain = ctx.createGain();
+  osc.type = type || 'sine';
+  osc.frequency.setValueAtTime(freq, t0);
+  const peak = (vol === undefined ? 1 : vol) * SFX_MASTER_VOL;
+  gain.gain.setValueAtTime(0, t0);
+  gain.gain.linearRampToValueAtTime(peak, t0 + 0.006);
+  gain.gain.exponentialRampToValueAtTime(0.0001, t0 + duration);
+  osc.connect(gain); gain.connect(ctx.destination);
+  osc.start(t0); osc.stop(t0 + duration + 0.02);
+}
+// 複数音を重ねて鳴らす（和音・簡単なジングル用）。notes: [{freq,duration,type,delay,vol}, ...]
+function playChord(notes) { for (const n of notes) playTone(n.freq, n.duration, n.type, n.delay, n.vol); }
+function setSfxEnabled(on) {
+  sfxEnabled = on;
+  localStorage.setItem(SFX_KEY, on ? '1' : '0');
+}
+
+// ---- イベント別SE。音色・音程・長さは目安。ここを調整すれば雰囲気を変えられる ----
+function sfxMine() { playTone(880, 0.05, 'square', 0, 0.35); }                    // 手動採掘
+function sfxOreDepleted() { playTone(320, 0.16, 'triangle', 0, 0.55); }           // 鉱脈を掘りつくした
+function sfxPlace() { playTone(520, 0.06, 'square', 0, 0.45); playTone(780, 0.08, 'square', 0.05, 0.4); }  // 設備設置
+function sfxCraft() { playTone(700, 0.05, 'triangle', 0, 0.4); playTone(980, 0.07, 'triangle', 0.04, 0.4); } // クラフト成功
+function sfxProduce() { playTone(600, 0.09, 'sine', 0, 0.4); }                    // 精錬・組立の生産完了
+function sfxResearchDone() {                                                      // 研究完了（少し華やか）
+  playChord([
+    { freq: 523.25, duration: 0.5, type: 'sine', delay: 0, vol: 0.5 },
+    { freq: 659.25, duration: 0.5, type: 'sine', delay: 0.08, vol: 0.5 },
+    { freq: 783.99, duration: 0.6, type: 'sine', delay: 0.16, vol: 0.55 },
+  ]);
+}
+function sfxBigAchieve() {                                                        // アンテナ／ビーコン起動（達成感）
+  playChord([
+    { freq: 392.00, duration: 0.55, type: 'triangle', delay: 0, vol: 0.5 },
+    { freq: 523.25, duration: 0.55, type: 'triangle', delay: 0.1, vol: 0.5 },
+    { freq: 659.25, duration: 0.65, type: 'triangle', delay: 0.2, vol: 0.55 },
+    { freq: 783.99, duration: 0.85, type: 'triangle', delay: 0.3, vol: 0.6 },
+  ]);
+}
+function sfxLowBattery() { playTone(440, 0.1, 'square', 0, 0.4); playTone(440, 0.1, 'square', 0.16, 0.4); }  // バッテリー低下警告
+function sfxBatteryDead() { playTone(220, 0.28, 'sawtooth', 0, 0.55); playTone(160, 0.32, 'sawtooth', 0.14, 0.5); } // バッテリー切れ・強制帰還
+function sfxPowerOut() { playTone(200, 0.14, 'square', 0, 0.4); }                 // 電力不足で設備停止
+
 // ---- タイル種別 ----
 const T_PLAIN = 0, T_ROCK = 1, T_IRON = 2, T_STONE = 3, T_CRYSTAL = 4, T_COPPER = 5, T_STARCRYSTAL = 6;
 const ORE_ITEM = { [T_IRON]: 'ironOre', [T_STONE]: 'stone', [T_CRYSTAL]: 'crystal', [T_COPPER]: 'copperOre', [T_STARCRYSTAL]: 'starCrystal' };
@@ -2483,6 +2558,8 @@ function openBuilding(b, keep) {
 // --- 設定 ---
 function openSettings() {
   showPanel(`<h2>⚙️ 設定<button class="close-x">✕</button></h2>
+    <div class="row"><div class="grow">効果音<br><span class="cost">採掘・設置・研究完了などの短い操作音</span></div>
+      <button class="btn ${sfxEnabled ? 'primary' : ''}" id="st-sfx-toggle">${sfxEnabled ? 'ON' : 'OFF'}</button></div>
     <div class="row"><div class="grow">セーブデータ（JSON）</div>
       <button class="btn" id="st-export">書き出す</button>
       <button class="btn" id="st-import">読み込む</button></div>
@@ -2497,6 +2574,11 @@ function openSettings() {
       ・バッテリーに注意！拠点の近くで自動充電<br>
       ・🔨建設から設備を置いて、アンテナ起動でクリア！</span></div>`);
   openedPanel = null;
+  panelEl.querySelector('#st-sfx-toggle').onclick = () => {
+    setSfxEnabled(!sfxEnabled);
+    if (sfxEnabled) sfxCraft();   // ONにした直後に確認用の短い音を鳴らす
+    openSettings();
+  };
   panelEl.querySelector('#st-export').onclick = () => {
     panelEl.querySelector('#st-json').value = JSON.stringify(makeSave());
     toast('書き出した！全選択してコピーしてね');
