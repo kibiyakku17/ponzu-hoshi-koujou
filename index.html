@@ -2649,6 +2649,7 @@ function openSettings() {
       <button class="btn ${sfxEnabled ? 'primary' : ''}" id="st-sfx-toggle">${sfxEnabled ? 'ON' : 'OFF'}</button></div>
     <div class="row"><div class="grow">セーブデータ（JSON）</div>
       <button class="btn" id="st-export">書き出す</button>
+      <button class="btn primary" id="st-copy">📋 コピー</button>
       <button class="btn" id="st-import">読み込む</button></div>
     <textarea id="st-json" placeholder="「書き出す」でここにJSONが出ます。読み込みはここに貼り付けて「読み込む」"></textarea>
     <div class="row" style="margin-top:8px"><div class="grow">手動セーブ</div><button class="btn" id="st-save">セーブ</button></div>
@@ -2668,14 +2669,30 @@ function openSettings() {
   };
   panelEl.querySelector('#st-export').onclick = () => {
     panelEl.querySelector('#st-json').value = JSON.stringify(makeSave());
-    toast('書き出した！全選択してコピーしてね');
+    toast('書き出した！📋コピーボタンか、全選択してコピーしてね');
+  };
+  panelEl.querySelector('#st-copy').onclick = async () => {
+    const ta = panelEl.querySelector('#st-json');
+    ta.value = JSON.stringify(makeSave());   // タップ時点の最新セーブを書き出してからコピーする
+    try {
+      if (!navigator.clipboard || !navigator.clipboard.writeText) throw new Error('no clipboard api');
+      await navigator.clipboard.writeText(ta.value);
+      toast('📋 コピーした！');
+    } catch (e) {
+      // Clipboard APIが無い/失敗する環境向けフォールバック：全選択してexecCommandを試す。それも失敗したら選択状態だけ残す
+      ta.focus(); ta.select(); ta.setSelectionRange(0, ta.value.length);
+      let ok = false;
+      try { ok = document.execCommand('copy'); } catch (e2) { ok = false; }
+      toast(ok ? '📋 コピーした！' : '自動コピーできなかった…全選択したので手動でコピーしてね', ok ? undefined : 'warn');
+    }
   };
   panelEl.querySelector('#st-import').onclick = () => {
     try {
-      const data = JSON.parse(panelEl.querySelector('#st-json').value);
-      if (!data || data.v !== 1) throw new Error('bad');
-      applySave(data);
-      localStorage.setItem(SAVE_KEY, JSON.stringify(data));
+      const raw = JSON.parse(panelEl.querySelector('#st-json').value);
+      const result = raw && typeof raw.v === 'number' ? migrateToLatest(raw) : null;
+      if (!result) throw new Error('bad');
+      applySave(result.data);
+      localStorage.setItem(SAVE_KEY, JSON.stringify(result.data));
       closePanel();
       toast('セーブデータを読み込んだ！');
     } catch { toast('読み込み失敗…JSONを確認してね', 'danger'); }
@@ -3055,19 +3072,25 @@ const MIGRATIONS = {
   6: migrateV6,   // v6 → v7（研究所consumedを廃止、グローバル研究進捗researchProgressへ統合）
   7: migrateV7,   // v7 → v8（鉱脈埋蔵量を目安3.5倍に底上げ、自動化ラインの早期枯渇対策）
 };
+// dをMIGRATIONSチェーンで最新のSAVE_VERSIONまで引き上げる。到達できなければnullを返す。
+// loadGame（localStorage起動時）と設定画面の手動「読み込む」（JSON貼り付け）の両方から共有する
+function migrateToLatest(d) {
+  let migrated = false, guard = 0;
+  while (d.v < SAVE_VERSION && MIGRATIONS[d.v] && guard++ < 10) {
+    d = MIGRATIONS[d.v](d);
+    migrated = true;
+  }
+  if (d.v !== SAVE_VERSION) return null;
+  return { data: d, migrated };
+}
 function loadGame() {
   try {
     const raw = localStorage.getItem(SAVE_KEY);
     if (!raw) return false;
-    let d = JSON.parse(raw);
-    let migrated = false, guard = 0;
-    while (d.v < SAVE_VERSION && MIGRATIONS[d.v] && guard++ < 10) {
-      d = MIGRATIONS[d.v](d);
-      migrated = true;
-    }
-    if (d.v !== SAVE_VERSION) return false;
-    if (migrated) toast('セーブデータを新しい形式に更新しました');
-    applySave(d);
+    const result = migrateToLatest(JSON.parse(raw));
+    if (!result) return false;
+    if (result.migrated) toast('セーブデータを新しい形式に更新しました');
+    applySave(result.data);
     return true;
   } catch (e) { return false; }
 }
