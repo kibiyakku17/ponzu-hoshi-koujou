@@ -940,12 +940,16 @@ function furnaceAccepts(item) { return !!SMELT_OUT[item]; }
 
 // ---- 設備の入出力（採掘機バッファ／精錬炉の投入出力／保管箱／ベルト、共通操作） ----
 function firstKey(obj) { const ks = Object.keys(obj); return ks.length ? ks[0] : null; }
-function bldPeekOutput(b) {
-  if (b.type === 'chest' || b.type === 'chestIn') return firstKey(b.inv);
-  if (b.type === 'furnace') return firstKey(b.output);
-  if (b.type === 'miner' || b.type === 'minerMk2') return firstKey(b.buffer);
-  if (b.type === 'assembler') return firstKey(b.output);
-  if (isBeltLike(b.type)) return b.item;
+// wantItemを指定すると、その種類が在庫にあるかだけを見る（無ければfirstKeyで先頭の1種類を返す）。
+// フィルタアーム対応（バグ修正）：wantItem無指定だとfirstKeyしか見ないため、混在鉱脈の採掘機バッファ等で
+// 先頭に無い種類（例:銅鉱石）がいつまでも掴めなかった。フィルタアームは常にwantItemを渡して直接その種類を探す
+function peekSpecific(inv, wantItem) { return invCount(inv, wantItem) > 0 ? wantItem : null; }
+function bldPeekOutput(b, wantItem) {
+  if (b.type === 'chest' || b.type === 'chestIn') return wantItem ? peekSpecific(b.inv, wantItem) : firstKey(b.inv);
+  if (b.type === 'furnace') return wantItem ? peekSpecific(b.output, wantItem) : firstKey(b.output);
+  if (b.type === 'miner' || b.type === 'minerMk2') return wantItem ? peekSpecific(b.buffer, wantItem) : firstKey(b.buffer);
+  if (b.type === 'assembler') return wantItem ? peekSpecific(b.output, wantItem) : firstKey(b.output);
+  if (isBeltLike(b.type)) return wantItem ? (b.item === wantItem ? b.item : null) : b.item;
   return null;
 }
 function bldRemoveOne(b, item) {
@@ -1212,14 +1216,15 @@ function tickAssembler(b, dt) {
 function tickArm(a, dt) {
   a.timer += dt;
   if (a.timer < armInterval(a)) return;
+  if (a.type === 'filterArm' && !a.filterItem) return;   // 対象アイテム未設定なら何も掴まない
   const dv = DIR_VEC[a.dir];
   const src = buildingAt(a.x - dv.x, a.y - dv.y);
   const dst = buildingAt(a.x + dv.x, a.y + dv.y);
   if (!src || !dst) return;
-  const item = bldPeekOutput(src);
+  // フィルタアームはfilterItemを直接指定して探す。指定なしだと先頭の1種類(firstKey)しか見ないため、
+  // 採掘機バッファ等に複数種類が混在していると先頭以外（例:銅鉱石）がいつまでも掴めないバグがあった
+  const item = bldPeekOutput(src, a.type === 'filterArm' ? a.filterItem : undefined);
   if (!item) return;
-  // フィルタアームは指定したアイテム以外は素通りさせる（対象未設定なら何も掴まない）
-  if (a.type === 'filterArm' && item !== a.filterItem) return;
   if (!bldCanInsert(dst, item)) return;
   bldRemoveOne(src, item);
   bldInsert(dst, item);
