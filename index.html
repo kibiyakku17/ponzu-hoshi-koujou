@@ -993,12 +993,15 @@ function bldOverlayInv(b) {
 }
 
 function tickMachines(dt) {
+  // Object.values(G.buildings)は配列を新規生成するため、1フレームに何度も呼ぶと設備数に比例して無駄が増える。
+  // 1回だけ呼んで使い回す（Phase4.6①）
+  const all = Object.values(G.buildings);
   // 発電機の燃料消費（発電の可否）を先に確定してから、電力ネットワークの需給を計算する
-  for (const b of Object.values(G.buildings)) {
+  for (const b of all) {
     if (b.type === 'generator' || b.type === 'advGenerator') tickGenerator(b, dt);
   }
-  tickPower();
-  for (const b of Object.values(G.buildings)) {
+  tickPower(all);
+  for (const b of all) {
     // 電力を必要とする設備は、停電中（b.powered===false）は完全停止する
     if (CONFIG.POWER_USE[b.type] !== undefined && !b.powered) continue;
     if (b.type === 'miner' || b.type === 'minerMk2') tickMiner(b, dt);
@@ -1071,11 +1074,11 @@ function rebuildPowerTopology() {
 // 各設備の稼働可否（b.powered）を毎ティック確定する：
 // 供給＝ネットワーク内で現在発電中のノードの出力合計、需要＝そのネットワークが届く消費設備の消費量合計
 // 拠点電源（base）が常時ネットワークの一員になっているため、恩恵期間のような特別扱いは不要
-function tickPower() {
+function tickPower(all) {
   if (powerTopologyDirty) rebuildPowerTopology();
   for (const net of powerNetworks) { net.supply = net.nodes.reduce((s, n) => s + powerNodeOutput(n), 0); net.demand = 0; }
   const assigned = [];
-  for (const b of Object.values(G.buildings)) {
+  for (const b of all) {
     if (CONFIG.POWER_USE[b.type] === undefined) continue;
     const net = powerNetworks.find(cand => cand.nodes.some(n => Math.hypot(n.x - b.x, n.y - b.y) <= powerNodeRadius(n)));
     if (net) net.demand += CONFIG.POWER_USE[b.type];
@@ -1561,8 +1564,9 @@ function render() {
     ctx.beginPath(); ctx.arc(sx, sy, s * 0.08, 0, 7); ctx.fill();
   }
 
-  // 設備（y順に描く）
-  const blds = Object.values(G.buildings).filter(b => G.explored[idx(b.x, b.y)]).sort((a, b) => a.y - b.y);
+  // 設備（y順に描く）：ビューポート外の設備は描画しても見えないため、事前に画面内だけへ絞り込む
+  // （設備数が増えるほど毎フレームdrawBuildingを呼ぶコストが線形に増えていたため、Phase4.6①で追加）
+  const blds = Object.values(G.buildings).filter(b => b.x >= x0 && b.x <= x1 && b.y >= y0 && b.y <= y1 && G.explored[idx(b.x, b.y)]).sort((a, b) => a.y - b.y);
   let playerDrawn = false;
   for (const b of blds) {
     if (!playerDrawn && p.y < b.y) { drawPlayer(s); playerDrawn = true; }
