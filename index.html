@@ -2195,7 +2195,7 @@ canvas.addEventListener('pointermove', e => {
   }
   if (!ptr || e.pointerId !== ptr.id) return;
   const dx = e.clientX - ptr.sx, dy = e.clientY - ptr.sy;
-  if (!ptr.drag && Math.hypot(dx, dy) > 12) { ptr.drag = true; if (!ptr.paint) followCam = false; }
+  if (!ptr.drag && Math.hypot(dx, dy) > 12) ptr.drag = true;
   if (!ptr.drag) return;
   if (ptr.paint) {
     const [tx, ty] = screenToTile(e.clientX, e.clientY);
@@ -2210,7 +2210,13 @@ canvas.addEventListener('pointermove', e => {
         tiles.push({ x: s.x, y: s.y, dir: 0 });
       }
     }
-  } else {
+  } else if (!buildMode) {
+    // 探索中（設置モードでない）だけ1本指ドラッグでカメラを動かす。設置モード中の非ペイント型
+    // （採掘機・アーム・組立機等）は、指のわずかなブレがこの閾値を超えて「ドラッグ」と誤判定
+    // されると、タップが無反応になった上カメラだけ密かにずれる不具合があったため、
+    // 設置モード中はここでカメラを動かさないようにした（Phase4.8）。カメラを動かしたい時は
+    // Phase4.4で追加した2本指ドラッグを使う
+    followCam = false;
     cam.x = ptr.cx - dx / tilePx;
     cam.y = ptr.cy - dy / tilePx;
   }
@@ -2222,12 +2228,20 @@ canvas.addEventListener('pointerup', e => {
     return;
   }
   if (!ptr || e.pointerId !== ptr.id) return;
-  if (!ptr.drag) {
+  if (ptr.paint) {
+    if (!ptr.drag) {
+      const [tx, ty] = screenToTile(e.clientX, e.clientY);
+      onTapTile(tx, ty);
+    } else if (dragPath) {
+      if (dragPath.mode === 'belt') commitBeltDrag(dragPath.tiles, dragPath.beltType);
+      else commitEraseDrag(dragPath.tiles);
+    }
+  } else if (buildMode || !ptr.drag) {
+    // 設置モード中の非ペイント型は、指がブレて「ドラッグ」と誤判定されていても
+    // 常に指を離した位置をタップとして確定する（カメラを動かしていないので、離した位置が
+    // そのまま意図した設置場所になる。Phase4.8）
     const [tx, ty] = screenToTile(e.clientX, e.clientY);
     onTapTile(tx, ty);
-  } else if (ptr.paint && dragPath) {
-    if (dragPath.mode === 'belt') commitBeltDrag(dragPath.tiles, dragPath.beltType);
-    else commitEraseDrag(dragPath.tiles);
   }
   ptr = null; dragPath = null;
 });
@@ -3214,7 +3228,7 @@ function showOfflineReport(seconds, before, after) {
 // バージョンチェック（インストール済みPWAにコード更新が反映されない対策）
 // デプロイのたびにGAME_VERSIONを上げると、開いたままのPWAに更新通知が出せる
 // =====================================================================
-const GAME_VERSION = '4.6.0';
+const GAME_VERSION = '4.8.0';
 async function checkForUpdate() {
   try {
     // cache無視で自身(index.html)を再取得し、埋め込まれたGAME_VERSION表記を比較する
