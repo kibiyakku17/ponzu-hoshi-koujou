@@ -198,6 +198,7 @@ const CONFIG = {
   MINER_BUFFER: 12,      // 採掘機の内部バッファ上限
   MINER_RADIUS: 1,       // 採掘機の採掘範囲（1=中心3×3）
   ARM_INTERVAL: 2,       // アームの搬送間隔（秒/個）
+  CHEST_OUT_INTERVAL: 1.5, // 搬入口付き保管箱(chestIn)が隣接ベルトへ自動搬出する間隔（秒/個）
   BELT_TIME: 1,          // ベルトが1タイル分アイテムを運ぶのにかかる時間（秒）
   SMELT_TIME: 2.5,       // 精錬1個あたりの時間（秒）
   FURNACE_IN_CAP: 20,    // 精錬炉の投入スロット上限（種類ごと）
@@ -274,7 +275,7 @@ const CONFIG = {
   // 研究ツリー（Tier1=パックIのみ、Tier2=パックI＋II。Tier2はTier1が全て解除済みで選択可に）
   RESEARCH: [
     { id: 'splitter',       tier: 1, name: '分配器',             desc: 'ベルト上に設置し、入力を2方向へ交互に振り分ける。', cost: { researchPack1: 20 } },
-    { id: 'inputChest',     tier: 1, name: '搬入口付き保管箱',   desc: 'ベルトから直接受け入れできる保管箱の上位版。', cost: { researchPack1: 80 } },
+    { id: 'inputChest',     tier: 1, name: '搬入口付き保管箱',   desc: 'ベルトから直接受け入れ、隣接ベルトへ自動搬出もできる保管箱の上位版。', cost: { researchPack1: 80 } },
     { id: 'fastBelt',       tier: 1, name: '高速ベルト',         desc: '搬送速度が2倍の新型ベルト。', cost: { researchPack1: 140 } },
     { id: 'minerMk2',       tier: 1, name: '採掘機Mk2',          desc: '採掘範囲5×5、速度1.5倍の上位採掘機。', cost: { researchPack1: 250 } },
     { id: 'fastArm',        tier: 2, name: '高速アーム',         desc: '動作速度が2倍のアーム。', cost: { researchPack1: 150, researchPack2: 100 } },
@@ -409,7 +410,7 @@ const BUILDINGS = {
   assembler: { name: '組立機', icon: '⚙️', desc: 'レシピを選んで自動クラフト。材料は隣接/アーム経由で搬入、完成品はアームで搬出。' },
   lab:       { name: '研究所', icon: '🔬', desc: '研究パックを消費して研究を進める。研究メニューから対象を選ぶ。' },
   splitter:  { name: '分配器', icon: '↗️', desc: 'ベルト上で使う簡易スプリッタ。受け取ったアイテムを2方向へ交互に振り分ける。設置後タップで90度回転。' },
-  chestIn:   { name: '搬入口付き保管箱', icon: '📥', desc: 'ベルトから直接受け入れできる保管箱の上位版。容量は通常箱と同じ。' },
+  chestIn:   { name: '搬入口付き保管箱', icon: '📥', desc: 'ベルトから直接受け入れ、隣接する空きベルトへ自動で搬出もできる保管箱の上位版。容量は通常箱と同じ。' },
   fastBelt:  { name: '高速ベルト', icon: '⏩', desc: '通常のベルトの2倍の速度で運ぶ。設置後タップで90度回転。ドラッグで連続設置。' },
   minerMk2:  { name: '採掘機Mk2', icon: '⛏️', desc: '採掘範囲5×5、速度1.5倍の上位採掘機。' },
   fastArm:   { name: '高速アーム', icon: '🦾', desc: '通常のアームの2倍の速度で動く。設置後タップで90度回転。' },
@@ -1011,6 +1012,7 @@ function tickMachines(dt) {
     else if (b.type === 'arm' || b.type === 'fastArm' || b.type === 'filterArm') tickArm(b, dt);
     else if (b.type === 'belt' || b.type === 'fastBelt') tickBelt(b, dt);
     else if (b.type === 'splitter') tickSplitter(b, dt);
+    else if (b.type === 'chestIn') tickChestIn(b, dt);
   }
 }
 
@@ -1261,6 +1263,25 @@ function tickSplitter(b, dt) {
         markDirty();
         return;
       }
+    }
+  }
+}
+
+// 搬入口付き保管箱(chestIn)：搬入はこれまで通りベルトからの直接プッシュ、搬出は隣接する空きベルトへ自動で1個ずつ渡す
+// （b.timerは旧セーブに無くても(b.timer||0)で0扱いになるため、移行処理は不要）
+function tickChestIn(b, dt) {
+  b.timer = (b.timer || 0) + dt;
+  if (b.timer < CONFIG.CHEST_OUT_INTERVAL) return;
+  const item = bldPeekOutput(b);
+  if (!item) return;
+  for (const dv of DIR_VEC) {
+    const nb = buildingAt(b.x + dv.x, b.y + dv.y);
+    if (nb && isBeltLike(nb.type) && !nb.item) {
+      nb.item = item; nb.progress = 0;
+      bldRemoveOne(b, item);
+      b.timer = 0;
+      markDirty();
+      return;
     }
   }
 }
@@ -2459,7 +2480,7 @@ function openBuilding(b, keep) {
       <button class="btn small" data-take10="${k}" ${invCount(b.inv, k) ? '' : 'disabled'}>×10</button>
     </div>`).join('');
     const title = b.type === 'chestIn' ? '📥 搬入口付き保管箱' : '📦 保管箱';
-    const note = b.type === 'chestIn' ? '<div class="row"><span class="cost">ベルトから直接受け入れできる</span></div>' : '';
+    const note = b.type === 'chestIn' ? '<div class="row"><span class="cost">ベルトから直接受け入れ、隣接する空きベルトへ自動搬出もする</span></div>' : '';
     html = `<h2>${title}（${total}/${CONFIG.CHEST_CAP}）<button class="close-x">✕</button></h2>${note}
       ${rows || '<div class="row">アイテムがない</div>'}` + removeBtn;
   }
