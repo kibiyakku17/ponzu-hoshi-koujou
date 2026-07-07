@@ -292,6 +292,19 @@ const CONFIG = {
     { id: 'gate2Blueprint', tier: 2, name: '第3エリアのゲート図面', desc: '第3エリアへのゲートが修理できるようになる。', cost: { researchPack1: 500, researchPack2: 500 } },
     { id: 'gate3Blueprint', tier: 2, name: '第4エリアのゲート図面', desc: '第4エリアへのゲートが修理できるようになる。星晶石・上位発電機はこの先にある。', cost: { researchPack1: 700, researchPack2: 700 } },
   ],
+  // ぽん太強化：星晶コアに到達したご褒美として、作業台から選んで買えるロボ本体の強化（Phase4.13③）。
+  // 1つ選ぶごとに星晶コアPONTA_UPGRADE_COSTを消費。それぞれ独立して購入でき、複数積み重ねられる
+  PONTA_UPGRADE_COST: { starCrystalCore: 3 },
+  PONTA_BATTERY_MULT: 1.5,  // バッテリー容量+50%
+  PONTA_SPEED_MULT: 1.2,    // 移動速度+20%
+  PONTA_MINING_MULT: 1.2,   // 採掘機・採掘機Mk2の採掘間隔を1/1.2に短縮（≒採掘速度+20%）
+  PONTA_SENSOR_MULT: 1.3,   // センサー範囲+30%
+  PONTA_UPGRADES: [
+    { id: 'battery', name: 'バッテリー容量+50%', desc: '最大バッテリー容量が50%増加する（既存の拡張・探査強化とも重複可）。' },
+    { id: 'speed',   name: '移動速度+20%',       desc: '移動速度が20%増加する（探査強化とも重複可）。' },
+    { id: 'mining',  name: '採掘速度+20%',       desc: '採掘機・採掘機Mk2の採掘間隔が短縮され、自動採掘が20%速くなる。' },
+    { id: 'sensor',  name: 'センサー範囲+30%',   desc: '視界（霧が晴れる範囲）が30%広がる（広域センサー研究とも重複可）。' },
+  ],
 };
 /* ▲▲▲ 調整パラメータここまで ▲▲▲ */
 
@@ -484,6 +497,7 @@ const G = {
     pending: null,                  // 到着後アクション {type,x,y}
     facing: 1,
     batteryUpgraded: false,
+    ponTaUpgrades: {},               // ぽん太強化：購入済み id -> true（複数積み重ね可）
   },
   flags: {},                        // クエスト進行フラグ
   research: {},                     // 解除済み研究 id -> true
@@ -520,18 +534,31 @@ function walkable(x, y) {
 function isBeltLike(type) { return type === 'belt' || type === 'fastBelt' || type === 'splitter'; }
 function beltTime(b) { return b.type === 'fastBelt' ? CONFIG.BELT_TIME / CONFIG.FAST_BELT_SPEED_MULT : CONFIG.BELT_TIME; }
 function minerRadius(b) { return b.type === 'minerMk2' ? CONFIG.MINER_MK2_RADIUS : CONFIG.MINER_RADIUS; }
-function minerInterval(b) { return b.type === 'minerMk2' ? CONFIG.MINER_INTERVAL / CONFIG.MINER_MK2_SPEED_MULT : CONFIG.MINER_INTERVAL; }
+// ぽん太強化「採掘速度+20%」は既存のMk2速度倍率とも重複して掛かる（採掘機・Mk2どちらにも効く）
+function minerInterval(b) {
+  const base = b.type === 'minerMk2' ? CONFIG.MINER_INTERVAL / CONFIG.MINER_MK2_SPEED_MULT : CONFIG.MINER_INTERVAL;
+  return hasPontaUpgrade('mining') ? base / CONFIG.PONTA_MINING_MULT : base;
+}
 function armInterval(a) { return a.type === 'fastArm' ? CONFIG.ARM_INTERVAL / CONFIG.FAST_ARM_SPEED_MULT : CONFIG.ARM_INTERVAL; }
-function effectiveViewR() { return CONFIG.VIEW_R * (G.research.sensorUpgrade ? CONFIG.SENSOR_UPGRADE_MULT : 1); }
-function moveSpeedMult() { return G.research.exploreUpgrade ? CONFIG.EXPLORE_SPEED_MULT : 1; }
+function hasPontaUpgrade(id) { return !!(G.player.ponTaUpgrades && G.player.ponTaUpgrades[id]); }
+function effectiveViewR() {
+  return CONFIG.VIEW_R
+    * (G.research.sensorUpgrade ? CONFIG.SENSOR_UPGRADE_MULT : 1)
+    * (hasPontaUpgrade('sensor') ? CONFIG.PONTA_SENSOR_MULT : 1);
+}
+function moveSpeedMult() {
+  return (G.research.exploreUpgrade ? CONFIG.EXPLORE_SPEED_MULT : 1)
+    * (hasPontaUpgrade('speed') ? CONFIG.PONTA_SPEED_MULT : 1);
+}
 function invCount(inv, item) { return inv[item] || 0; }
 function invAdd(inv, item, n) { inv[item] = (inv[item] || 0) + n; if (inv[item] <= 0) delete inv[item]; }
 function invTotal(inv) { return Object.values(inv).reduce((a, b) => a + b, 0); }
 function battMax() {
-  // 作業台のバッテリー拡張と探査強化研究は重複して掛かる
+  // 作業台のバッテリー拡張・探査強化研究・ぽん太強化は重複して掛かる
   return CONFIG.BATTERY_MAX
     * (G.player.batteryUpgraded ? CONFIG.BATTERY_UPGRADE_MULT : 1)
-    * (G.research.exploreUpgrade ? CONFIG.EXPLORE_BATTERY_MULT : 1);
+    * (G.research.exploreUpgrade ? CONFIG.EXPLORE_BATTERY_MULT : 1)
+    * (hasPontaUpgrade('battery') ? CONFIG.PONTA_BATTERY_MULT : 1);
 }
 
 // =====================================================================
@@ -2615,7 +2642,17 @@ function openBuilding(b, keep) {
         <span class="cost">${G.player.batteryUpgraded ? '適用済み：最大容量+' + Math.round((CONFIG.BATTERY_UPGRADE_MULT - 1) * 100) + '%' : '最大バッテリー+' + Math.round((CONFIG.BATTERY_UPGRADE_MULT - 1) * 100) + '%'}</span></div>
         <button class="btn ${buOk ? 'primary' : ''}" id="pb-battery-upgrade" ${buOk ? '' : 'disabled'}>強化</button>
       </div>`;
-    html = `<h2>🔧 作業台<button class="close-x">✕</button></h2>${rows}${buRow}` + removeBtn;
+    // ぽん太強化：星晶コアに到達した後のご褒美なので、それまでは欄自体を出さない
+    const pontaRow = everHad('starCrystalCore') ? `<h3>🌟 ぽん太強化</h3>${CONFIG.PONTA_UPGRADES.map(u => {
+      const owned = hasPontaUpgrade(u.id);
+      const ok = !owned && canAfford(CONFIG.PONTA_UPGRADE_COST);
+      return `<div class="row">
+        <span class="dot" style="background:#7c3fd6"></span>
+        <div class="grow"><b>${u.name}</b>${owned ? '（適用済み）' : ''}<br><span class="cost">${u.desc}</span><br><span class="cost">${costText(CONFIG.PONTA_UPGRADE_COST)}</span></div>
+        <button class="btn ${ok ? 'primary' : ''}" data-ponta="${u.id}" ${ok ? '' : 'disabled'}>${owned ? '適用済み' : '強化する'}</button>
+      </div>`;
+    }).join('')}` : '';
+    html = `<h2>🔧 作業台<button class="close-x">✕</button></h2>${rows}${buRow}${pontaRow}` + removeBtn;
   }
   else if (b.type === 'antenna') {
     html = `<h2>📡 通信アンテナ<button class="close-x">✕</button></h2>
@@ -2797,6 +2834,20 @@ function openBuilding(b, keep) {
     markDirty(); scheduleSave();
     openBuilding(b);
   });
+  panelEl.querySelectorAll('[data-ponta]').forEach(btn => btn.addEventListener('click', () => {
+    const id = btn.dataset.ponta;
+    if (hasPontaUpgrade(id) || !canAfford(CONFIG.PONTA_UPGRADE_COST)) return;
+    payCost(CONFIG.PONTA_UPGRADE_COST);
+    const oldMax = battMax();   // battery強化の場合、現在値を新最大値の比率へ引き継ぐ（拡張と同じ作法）
+    G.player.ponTaUpgrades = G.player.ponTaUpgrades || {};
+    G.player.ponTaUpgrades[id] = true;
+    if (id === 'battery') G.player.battery = G.player.battery / oldMax * battMax();
+    const u = CONFIG.PONTA_UPGRADES.find(x => x.id === id);
+    toast(`🌟 ぽん太強化：${u.name}を獲得！`);
+    sfxResearchDone();
+    markDirty(); scheduleSave();
+    openBuilding(b);
+  }));
   panelEl.querySelector('#pb-repair')?.addEventListener('click', () => {
     if (b.requiresTech && !G.research[b.requiresTech]) return;
     const cost = gateRepairCost(b);
@@ -3008,6 +3059,7 @@ function makeSave() {
     player: {
       x: G.player.x, y: G.player.y, battery: G.player.battery, inv: G.player.inv,
       batteryUpgraded: !!G.player.batteryUpgraded,
+      ponTaUpgrades: G.player.ponTaUpgrades || {},
     },
     flags: G.flags,
     research: G.research,
@@ -3056,6 +3108,7 @@ function applySave(d) {
   G.player.battery = d.player.battery;
   G.player.inv = d.player.inv || {};
   G.player.batteryUpgraded = !!d.player.batteryUpgraded;
+  G.player.ponTaUpgrades = d.player.ponTaUpgrades || {};
   G.player.path = []; G.player.pending = null;
   G.flags = d.flags || {};
   G.research = d.research || {};
@@ -3353,7 +3406,7 @@ function showOfflineReport(seconds, before, after) {
 // バージョンチェック（インストール済みPWAにコード更新が反映されない対策）
 // デプロイのたびにGAME_VERSIONを上げると、開いたままのPWAに更新通知が出せる
 // =====================================================================
-const GAME_VERSION = '4.12.0';
+const GAME_VERSION = '4.13.0';
 async function checkForUpdate() {
   try {
     // cache無視で自身(index.html)を再取得し、埋め込まれたGAME_VERSION表記を比較する
