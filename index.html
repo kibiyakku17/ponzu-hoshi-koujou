@@ -369,6 +369,7 @@ function sfxBigAchieve() {                                                      
 function sfxLowBattery() { playTone(440, 0.1, 'square', 0, 0.4); playTone(440, 0.1, 'square', 0.16, 0.4); }  // バッテリー低下警告
 function sfxBatteryDead() { playTone(220, 0.28, 'sawtooth', 0, 0.55); playTone(160, 0.32, 'sawtooth', 0.14, 0.5); } // バッテリー切れ・強制帰還
 function sfxPowerOut() { playTone(200, 0.14, 'square', 0, 0.4); }                 // 電力不足で設備停止
+function sfxAnalysisLog() { playTone(660, 0.12, 'triangle', 0, 0.4); playTone(880, 0.16, 'triangle', 0.08, 0.35); } // 星晶石チェーンの解析ログ（初回精製）
 
 // ---- タイル種別 ----
 const T_PLAIN = 0, T_ROCK = 1, T_IRON = 2, T_STONE = 3, T_CRYSTAL = 4, T_COPPER = 5, T_STARCRYSTAL = 6;
@@ -399,6 +400,17 @@ const ITEMS = {
   starCrystalRefined:{ name: '高純度星晶石', color: '#9b6bd6' },
   starCrystalCore:   { name: '星晶コア',     color: '#7c3fd6' },
   arcCore:           { name: 'アークコア',   color: '#f0d9ff' },
+};
+
+// 星晶石精製チェーンの各段階を初めて入手した瞬間に流す「解析ログ」フレーバー（Phase4.12②）。
+// 表示順＝配列の並び順（星晶石→高純度星晶石→星晶コア→アークコア）。既存のG.discovered（素材図鑑）
+// を「初回入手済みか」の判定にそのまま流用するため、専用のフラグは持たない
+const ANALYSIS_LOG_ORDER = ['starCrystal', 'starCrystalRefined', 'starCrystalCore', 'arcCore'];
+const ANALYSIS_LOGS = {
+  starCrystal:        '【解析ログ】未知の構造を検出。自然結晶とは一致しない。継続解析を推奨。',
+  starCrystalRefined: '【解析ログ】通常の結晶構造と一致しない配列を確認。',
+  starCrystalCore:    '【解析ログ】過去の地質変動の記録らしき情報を検出。',
+  arcCore:             '【解析ログ】人工構造物の設計データと思われる情報を検出。',
 };
 
 // ---- 設備定義 ----
@@ -1415,7 +1427,13 @@ function syncDiscovered() {
   for (const k of Object.keys(G.player.inv)) {
     if (G.player.inv[k] > 0 && !G.discovered[k]) {
       G.discovered[k] = true;
-      toast(`${ITEMS[k].name}を発見！新しいレシピのヒントが増えた`);
+      if (ANALYSIS_LOGS[k]) {
+        // 星晶石チェーンの初回入手は、通常の「発見！」より長く目立つ解析ログ演出に差し替える
+        toast(ANALYSIS_LOGS[k], undefined, 5000, true);
+        sfxAnalysisLog();
+      } else {
+        toast(`${ITEMS[k].name}を発見！新しいレシピのヒントが増えた`);
+      }
     }
   }
 }
@@ -2807,6 +2825,8 @@ function openSettings() {
     <div class="row" style="margin-top:8px"><div class="grow">手動セーブ</div><button class="btn" id="st-save">セーブ</button></div>
     <div class="row"><div class="grow">最初からやり直す<br><span class="cost">セーブデータを消して新しい星へ</span></div>
       <button class="btn danger" id="st-reset">リセット</button></div>
+    <div class="row"><div class="grow">📖 解析ログ<br><span class="cost">星晶石チェーンで見つけた解析ログを見返せる</span></div>
+      <button class="btn" id="st-analysis-log">見る</button></div>
     <h3>あそびかた</h3>
     <div class="row"><span class="cost">
       ・タップで移動／鉱脈タップで採掘（近くにいるとき）<br>
@@ -2819,6 +2839,7 @@ function openSettings() {
     if (sfxEnabled) sfxCraft();   // ONにした直後に確認用の短い音を鳴らす
     openSettings();
   };
+  panelEl.querySelector('#st-analysis-log').onclick = () => openAnalysisLog();
   panelEl.querySelector('#st-export').onclick = () => {
     panelEl.querySelector('#st-json').value = JSON.stringify(makeSave());
     toast('書き出した！📋コピーボタンか、全選択してコピーしてね');
@@ -2859,6 +2880,19 @@ function openSettings() {
       location.href = location.pathname + '?reset=' + Date.now();
     }
   };
+}
+
+// 星晶石チェーンの解析ログ一覧（Phase4.12②）：未入手の段階は？？？で伏せる
+function openAnalysisLog() {
+  const rows = ANALYSIS_LOG_ORDER.map((k, i) => {
+    const got = !!G.discovered[k];
+    return `<div class="row" style="opacity:${got ? 1 : .5}">
+      <div class="grow"><b>記録${i + 1}：${got ? ITEMS[k].name : '？？？'}</b><br>
+      <span class="cost">${got ? ANALYSIS_LOGS[k] : '未解析'}</span></div>
+    </div>`;
+  }).join('');
+  showPanel(`<h2>📖 解析ログ<button class="close-x">✕</button></h2>${rows}`);
+  openedPanel = null;
 }
 
 // =====================================================================
@@ -3319,7 +3353,7 @@ function showOfflineReport(seconds, before, after) {
 // バージョンチェック（インストール済みPWAにコード更新が反映されない対策）
 // デプロイのたびにGAME_VERSIONを上げると、開いたままのPWAに更新通知が出せる
 // =====================================================================
-const GAME_VERSION = '4.11.0';
+const GAME_VERSION = '4.12.0';
 async function checkForUpdate() {
   try {
     // cache無視で自身(index.html)を再取得し、埋め込まれたGAME_VERSION表記を比較する
