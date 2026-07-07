@@ -839,6 +839,13 @@ let eraseMode = false;
 const DIRECTIONAL_TYPES = new Set(['arm', 'fastArm', 'filterArm', 'belt', 'fastBelt', 'splitter']);
 let placePreview = null; // {type,x,y,dir} 設置確定前のプレビュー
 let placementHistory = [];   // {type,x,y}のスタック。「元に戻す」を押すたびに1件ずつ取り消して、設置モードを抜けずにさかのぼれるようにする
+// モード切替/キャンセルするまでクリアされないため、1回のベルト連続ドラッグ設置等で際限なく積み上がりうる。
+// 実用上、これ以上さかのぼって元に戻す操作は発生しないので上限を設けて無制限な配列成長を防ぐ（Phase4.9）
+const PLACEMENT_HISTORY_MAX = 200;
+function pushPlacementHistory(entry) {
+  placementHistory.push(entry);
+  if (placementHistory.length > PLACEMENT_HISTORY_MAX) placementHistory.shift();
+}
 
 function canAfford(cost) {
   return Object.entries(cost).every(([k, v]) => invCount(G.player.inv, k) >= v);
@@ -894,7 +901,7 @@ function tryPlace(type, x, y, initDir) {
   if (type === 'generator' || type === 'advGenerator') { b.input = {}; b.job = null; b.progress = 0; b.active = false; }
   G.buildings[bkey(x, y)] = b;
   markPowerTopologyDirty();
-  placementHistory.push({ type, x, y });
+  pushPlacementHistory({ type, x, y });
   buildMode = null;
   placePreview = null;
   updateBuildModeUI();
@@ -2139,7 +2146,7 @@ function commitBeltDrag(tiles, beltType) {
     if (!canAfford(CONFIG.COSTS[beltType])) break;
     payCost(CONFIG.COSTS[beltType]);
     G.buildings[bkey(t.x, t.y)] = { type: beltType, x: t.x, y: t.y, dir: t.dir, item: null, progress: 0 };
-    placementHistory.push({ type: beltType, x: t.x, y: t.y });   // 1本ずつ積む→「元に戻す」で1本ずつさかのぼれる
+    pushPlacementHistory({ type: beltType, x: t.x, y: t.y });   // 1本ずつ積む→「元に戻す」で1本ずつさかのぼれる
     placed++;
   }
   if (placed > 0) { updateBuildModeUI(); markDirty(); saveGame(); }
@@ -2167,6 +2174,12 @@ function touchMidpoint() {
   return { x: pts.reduce((s, p) => s + p.x, 0) / pts.length, y: pts.reduce((s, p) => s + p.y, 0) / pts.length };
 }
 canvas.addEventListener('pointerdown', e => {
+  // 実機（特にPWAのスタンドアロン表示）では、指が画面端に近づく等でcanvas範囲外に
+  // 出た瞬間pointermove/pointerupがcanvasに届かなくなることがある。touches/ptr/dragPathの
+  // 掃除がpointerup/pointercancel任せになっているため、それが届かないと後始末されずに
+  // 残り続け、プレイを続けるほどタップ誤判定が蓄積していく（「時間経過で重くなる」の一因）。
+  // ポインタキャプチャで、指がどこに動いてもこのcanvasへイベントが届くことを保証する（Phase4.9）。
+  try { canvas.setPointerCapture(e.pointerId); } catch (err) { /* 対応環境差は無視 */ }
   touches.set(e.pointerId, { x: e.clientX, y: e.clientY });
   if (touches.size >= 2) {
     // 2本指目が触れた瞬間：進行中の設置/撤去ドラッグは確定させずに中断し、カメラパンへ切り替える
@@ -2222,6 +2235,7 @@ canvas.addEventListener('pointermove', e => {
   }
 });
 canvas.addEventListener('pointerup', e => {
+  try { canvas.releasePointerCapture(e.pointerId); } catch (err) { /* 対応環境差は無視 */ }
   touches.delete(e.pointerId);
   if (panState) {
     if (touches.size === 0) panState = null;   // 両方の指が離れたら2本指パンを終了（設置・タップは発生させない）
@@ -2246,6 +2260,7 @@ canvas.addEventListener('pointerup', e => {
   ptr = null; dragPath = null;
 });
 canvas.addEventListener('pointercancel', e => {
+  try { canvas.releasePointerCapture(e.pointerId); } catch (err) { /* 対応環境差は無視 */ }
   touches.delete(e.pointerId);
   if (touches.size === 0) panState = null;
   ptr = null; dragPath = null;
@@ -3228,7 +3243,7 @@ function showOfflineReport(seconds, before, after) {
 // バージョンチェック（インストール済みPWAにコード更新が反映されない対策）
 // デプロイのたびにGAME_VERSIONを上げると、開いたままのPWAに更新通知が出せる
 // =====================================================================
-const GAME_VERSION = '4.8.0';
+const GAME_VERSION = '4.9.0';
 async function checkForUpdate() {
   try {
     // cache無視で自身(index.html)を再取得し、埋め込まれたGAME_VERSION表記を比較する
