@@ -908,7 +908,7 @@ function tryPlace(type, x, y, initDir) {
   if (minerMixedOreNames) toast(`⚠️ 設置した！この範囲には${minerMixedOreNames}の鉱脈が混在しています（ラインが混ざるかも）`, 'warn', 4200);
   else toast(BUILDINGS[type].name + 'を設置した！');
   sfxPlace();
-  markDirty(); saveGame();
+  markDirty(); scheduleSave();
 }
 
 function removeBuilding(b) {
@@ -923,7 +923,7 @@ function removeBuilding(b) {
   markPowerTopologyDirty();
   closePanel();
   toast(BUILDINGS[b.type].name + 'を撤去した（材料は返却）');
-  markDirty(); saveGame();
+  markDirty(); scheduleSave();
 }
 function payCostRefund(cost) { for (const [k, v] of Object.entries(cost)) invAdd(G.player.inv, k, v); }
 // 「元に戻す」：placementHistoryの末尾から1件ずつ取り消す。押すたびにさかのぼれるスタック方式（Phase4.6③）
@@ -2149,7 +2149,7 @@ function commitBeltDrag(tiles, beltType) {
     pushPlacementHistory({ type: beltType, x: t.x, y: t.y });   // 1本ずつ積む→「元に戻す」で1本ずつさかのぼれる
     placed++;
   }
-  if (placed > 0) { updateBuildModeUI(); markDirty(); saveGame(); }
+  if (placed > 0) { updateBuildModeUI(); markDirty(); scheduleSave(); }
   toast(placed > 0 ? `${BUILDINGS[beltType].name}を${placed}個設置した` : '設置できなかった（岩・鉱脈・設備・資材不足）', placed > 0 ? undefined : 'warn');
 }
 // ドラッグで拾った経路上の設備をまとめて撤去（拠点・ゲートはスキップして継続）
@@ -2633,18 +2633,18 @@ function openBuilding(b, keep) {
   panelEl.querySelector('#pb-remove')?.addEventListener('click', () => removeBuilding(b));
   panelEl.querySelector('#pb-collect')?.addEventListener('click', () => {
     for (const [k, v] of Object.entries(b.buffer)) invAdd(inv, k, v);
-    b.buffer = {}; markDirty(); saveGame();
+    b.buffer = {}; markDirty(); scheduleSave();
   });
   panelEl.querySelector('#pb-takeout')?.addEventListener('click', () => {
     for (const [k, v] of Object.entries(b.output)) invAdd(inv, k, v);
-    b.output = {}; markDirty(); saveGame();
+    b.output = {}; markDirty(); scheduleSave();
   });
   panelEl.querySelectorAll('[data-in]').forEach(btn => btn.addEventListener('click', () => {
     const item = btn.dataset.in;
     const cap = b.type === 'assembler' ? CONFIG.ASSEMBLER_IN_CAP : b.type === 'lab' ? CONFIG.LAB_IN_CAP
       : b.type === 'advGenerator' ? CONFIG.ADV_GEN_FUEL_CAP : b.type === 'generator' ? CONFIG.GEN_FUEL_CAP : CONFIG.FURNACE_IN_CAP;
     const n = Math.min(+btn.dataset.n, invCount(inv, item), cap - invCount(b.input, item));
-    if (n > 0) { invAdd(inv, item, -n); invAdd(b.input, item, n); markDirty(); saveGame(); }
+    if (n > 0) { invAdd(inv, item, -n); invAdd(b.input, item, n); markDirty(); scheduleSave(); }
   }));
   panelEl.querySelectorAll('[data-lab-tech]').forEach(btn => btn.addEventListener('click', () => {
     const techId = btn.dataset.labTech;
@@ -2653,7 +2653,7 @@ function openBuilding(b, keep) {
     for (const [k, v] of Object.entries(b.input)) invAdd(inv, k, v);
     b.input = {}; b.job = null; b.progress = 0;
     b.currentTech = techId;
-    markDirty(); saveGame();
+    markDirty(); scheduleSave();
     openBuilding(b);
   }));
   panelEl.querySelectorAll('[data-assembler-recipe]').forEach(btn => btn.addEventListener('click', () => {
@@ -2663,7 +2663,7 @@ function openBuilding(b, keep) {
     for (const [k, v] of Object.entries(b.input)) invAdd(inv, k, v);
     b.input = {}; b.job = null; b.progress = 0;
     b.recipeOut = newRecipe;
-    markDirty(); saveGame();
+    markDirty(); scheduleSave();
     openBuilding(b);
   }));
   const chestMove = (k, n, toChest) => {
@@ -2674,7 +2674,7 @@ function openBuilding(b, keep) {
       n = Math.min(n, invCount(b.inv, k));
       if (n > 0) { invAdd(b.inv, k, -n); invAdd(inv, k, n); }
     }
-    markDirty(); saveGame();
+    markDirty(); scheduleSave();
   };
   panelEl.querySelectorAll('[data-put]').forEach(btn => btn.addEventListener('click', () => chestMove(btn.dataset.put, 1, true)));
   panelEl.querySelectorAll('[data-put10]').forEach(btn => btn.addEventListener('click', () => chestMove(btn.dataset.put10, 10, true)));
@@ -2690,19 +2690,19 @@ function openBuilding(b, keep) {
       made++;
     }
     if (made > 0) sfxCraft();
-    markDirty(); saveGame();
+    markDirty(); scheduleSave();
   };
   panelEl.querySelectorAll('[data-craft]').forEach(btn => btn.addEventListener('click', () => craft(+btn.dataset.craft, 1)));
   panelEl.querySelectorAll('[data-craft5]').forEach(btn => btn.addEventListener('click', () => craft(+btn.dataset.craft5, 5)));
   panelEl.querySelector('#pb-activate')?.addEventListener('click', () => activateAntenna(b));
   panelEl.querySelector('#pb-rotate')?.addEventListener('click', () => {
     b.dir = (b.dir + 1) % 4;
-    markDirty(); saveGame();
+    markDirty(); scheduleSave();
     openBuilding(b);
   });
   panelEl.querySelectorAll('[data-filter-item]').forEach(btn => btn.addEventListener('click', () => {
     b.filterItem = btn.dataset.filterItem;
-    markDirty(); saveGame();
+    markDirty(); scheduleSave();
     openBuilding(b);
   }));
   panelEl.querySelector('#pb-battery-upgrade')?.addEventListener('click', () => {
@@ -2712,7 +2712,7 @@ function openBuilding(b, keep) {
     G.player.batteryUpgraded = true;
     G.player.battery = G.player.battery / oldMax * battMax();
     toast('バッテリーを拡張した！最大容量+' + Math.round((CONFIG.BATTERY_UPGRADE_MULT - 1) * 100) + '%');
-    markDirty(); saveGame();
+    markDirty(); scheduleSave();
     openBuilding(b);
   });
   panelEl.querySelector('#pb-repair')?.addEventListener('click', () => {
@@ -2725,7 +2725,7 @@ function openBuilding(b, keep) {
     delete G.buildings[bkey(b.x, b.y)]; // 修理後はタイルを完全な平地に戻す（ベルト設置・通行が可能に）
     if (G.research.gateWidening && border) applyGateWideningFor(border); // 研究済みなら即座に3マス幅で開通
     toast('ゲートを修理した！奥へ進める（ベルトも通せるようになった）');
-    closePanel(); markDirty(); saveGame();
+    closePanel(); markDirty(); scheduleSave();
   });
   panelEl.querySelector('#pb-beacon-activate')?.addEventListener('click', () => activateBeacon(b));
 }
@@ -2928,6 +2928,18 @@ function saveGame() {
   if (suppressSave) return;
   G.lastSeen = Date.now();
   try { localStorage.setItem(SAVE_KEY, JSON.stringify(makeSave())); } catch (e) { /* 容量オーバー等は無視 */ }
+}
+// 建設タップ・撤去・パネル操作のたびに毎回同期でJSON.stringify(セーブ全体)+localStorage書き込みを
+// 行っていたため、設備数が多い終盤セーブほどそのタップ自身の処理内でメインスレッドを長く塞ぎ、
+// 直後に連打された次のタップの処理を遅らせていた（「反応しない→連打→少し待つと置ける」の一因）。
+// 短時間に何度呼ばれても最後の1回だけ、今のフレームの外（後続のタイマー）でまとめて保存する。
+// 定期オートセーブ(CONFIG.AUTOSAVE_SEC)が別途動いているため、データ消失の猶予は従来と同程度に収まる（Phase4.10）。
+const SAVE_DEBOUNCE_MS = 1200;
+let saveDebounceTimer = null;
+function scheduleSave() {
+  if (suppressSave) return;
+  clearTimeout(saveDebounceTimer);
+  saveDebounceTimer = setTimeout(saveGame, SAVE_DEBOUNCE_MS);
 }
 function applySave(d) {
   for (let i = 0; i < d.tiles.length; i++) G.tiles[i] = +d.tiles[i];
@@ -3243,7 +3255,7 @@ function showOfflineReport(seconds, before, after) {
 // バージョンチェック（インストール済みPWAにコード更新が反映されない対策）
 // デプロイのたびにGAME_VERSIONを上げると、開いたままのPWAに更新通知が出せる
 // =====================================================================
-const GAME_VERSION = '4.9.0';
+const GAME_VERSION = '4.10.0';
 async function checkForUpdate() {
   try {
     // cache無視で自身(index.html)を再取得し、埋め込まれたGAME_VERSION表記を比較する
@@ -3268,8 +3280,9 @@ document.getElementById('update-banner-close').onclick = (e) => {
 // =====================================================================
 // 起動
 // =====================================================================
-document.addEventListener('visibilitychange', () => { if (document.hidden) saveGame(); });
-window.addEventListener('pagehide', () => saveGame());
+// バックグラウンド化・終了時は、保留中のデバウンス保存(scheduleSave)を待たずに必ず即時保存する
+document.addEventListener('visibilitychange', () => { if (document.hidden) { clearTimeout(saveDebounceTimer); saveGame(); } });
+window.addEventListener('pagehide', () => { clearTimeout(saveDebounceTimer); saveGame(); });
 
 function boot() {
   resize();
