@@ -238,6 +238,10 @@ const CONFIG = {
   ADV_GEN_RADIUS: 28,        // 上位発電機の送電半径（タイル）
   ADV_GEN_FUEL_INTERVAL: 60, // 上位発電機がアークコア1個を消費するのにかかる時間（秒）
   ADV_GEN_FUEL_CAP: 10,      // 上位発電機の燃料バッファ上限
+  BATTERY_CAPACITY: 1000,     // 蓄電池の充電容量
+  BATTERY_CHARGE_RATE: 20,    // 蓄電池の充電速度（/秒。供給が需要を上回る分から充電）
+  BATTERY_DISCHARGE_RATE: 20, // 蓄電池の放電速度（/秒。供給が需要を下回る分をここから補う）
+  BATTERY_RADIUS: 15,         // 蓄電池の電力網への接続半径（タイル）。小型発電機と同格
   // 設備の設置コスト（gateは修理コスト）
   COSTS: {
     furnace:  { stone: 5 },
@@ -260,6 +264,7 @@ const CONFIG = {
     gate2:    { part: 20, stoneBlock: 20, circuit: 10 },
     relay:    { ironPlate: 3, part: 2 },
     generator:{ ironPlate: 5, part: 3 },
+    battery:  { ironPlate: 6, part: 4, circuit: 2 },
     advGenerator: { starCrystalCore: 4, circuit: 6, part: 6 },
     gate3:    { part: 30, stoneBlock: 30, circuit: 20 },
   },
@@ -277,6 +282,7 @@ const CONFIG = {
     { id: 'splitter',       tier: 1, name: '分配器',             desc: 'ベルト上に設置し、入力を2方向へ交互に振り分ける。', cost: { researchPack1: 20 } },
     { id: 'inputChest',     tier: 1, name: '搬入口付き保管箱',   desc: 'ベルトから直接受け入れ、隣接ベルトへ自動搬出もできる保管箱の上位版。', cost: { researchPack1: 80 } },
     { id: 'fastBelt',       tier: 1, name: '高速ベルト',         desc: '搬送速度が2倍の新型ベルト。', cost: { researchPack1: 140 } },
+    { id: 'battery',        tier: 1, name: '蓄電池',             desc: '電力網の供給が需要を上回る時に自動で充電し、下回る時は放電して一時的な停電を防ぐ設備を設置できる。', cost: { researchPack1: 200 } },
     { id: 'minerMk2',       tier: 1, name: '採掘機Mk2',          desc: '採掘範囲5×5、速度1.5倍の上位採掘機。', cost: { researchPack1: 250 } },
     { id: 'fastArm',        tier: 2, name: '高速アーム',         desc: '動作速度が2倍のアーム。', cost: { researchPack1: 150, researchPack2: 100 } },
     { id: 'filterArm',      tier: 2, name: 'フィルタアーム',     desc: '指定した1種類のアイテムだけを掴むアーム。混載ベルトの仕分けに使う。', cost: { researchPack1: 150, researchPack2: 100 } },
@@ -416,6 +422,7 @@ const BUILDINGS = {
   fastArm:   { name: '高速アーム', icon: '🦾', desc: '通常のアームの2倍の速度で動く。設置後タップで90度回転。' },
   filterArm: { name: 'フィルタアーム', icon: '🎯', desc: '指定した1種類のアイテムだけを掴む。それ以外は素通りさせる。設置後タップで対象アイテムと向きを設定。' },
   generator: { name: '小型発電機', icon: '🔋', desc: 'エネルギー結晶を消費して周囲に電力を送る（無線・半径15マス）。研究不要ですぐ作れる。' },
+  battery:   { name: '蓄電池', icon: '🔌', desc: '電力網に接続し、供給が余っている時に自動で充電、不足している時は放電して一時的な停電を防ぐ（発電量そのものは増えない）。' },
   relay:     { name: '無線中継塔', icon: '📶', desc: '発電機または他の中継塔から半径15マス以内に置くと、そこからさらに半径15マスへ電力を中継する。電力は消費しない。' },
   advGenerator: { name: '上位発電機', icon: '🔮', desc: 'アークコアを消費し、小型発電機より大幅に高い電力を発電する（無線・半径28マス）。第4エリアのゲート図面が必要。' },
 };
@@ -899,6 +906,7 @@ function tryPlace(type, x, y, initDir) {
   if (type === 'assembler') { b.input = {}; b.output = {}; b.job = null; b.progress = 0; b.recipeOut = null; }
   if (type === 'lab') { b.input = {}; b.currentTech = null; b.job = null; b.progress = 0; }
   if (type === 'generator' || type === 'advGenerator') { b.input = {}; b.job = null; b.progress = 0; b.active = false; }
+  if (type === 'battery') { b.charge = 0; }
   G.buildings[bkey(x, y)] = b;
   markPowerTopologyDirty();
   pushPlacementHistory({ type, x, y });
@@ -1013,7 +1021,7 @@ function tickMachines(dt) {
   for (const b of all) {
     if (b.type === 'generator' || b.type === 'advGenerator') tickGenerator(b, dt);
   }
-  tickPower(all);
+  tickPower(all, dt);
   for (const b of all) {
     // 電力を必要とする設備は、停電中（b.powered===false）は完全停止する
     if (CONFIG.POWER_USE[b.type] !== undefined && !b.powered) continue;
@@ -1047,12 +1055,13 @@ function tickGenerator(b, dt) {
 }
 // 拠点電源（base）は燃料切れなしの常時稼働電源として扱う。既存セーブもbase建物は必ず存在するため、
 // 移行処理を書かなくてもロードした瞬間から拠点電源が有効になる
-function isPowerNode(b) { return b.type === 'base' || b.type === 'generator' || b.type === 'advGenerator' || b.type === 'relay'; }
+function isPowerNode(b) { return b.type === 'base' || b.type === 'generator' || b.type === 'advGenerator' || b.type === 'relay' || b.type === 'battery'; }
 function powerNodeRadius(b) {
   if (b.type === 'base') return CONFIG.BASE_POWER_RADIUS;
   if (b.type === 'generator') return CONFIG.GEN_RADIUS;
   if (b.type === 'advGenerator') return CONFIG.ADV_GEN_RADIUS;
   if (b.type === 'relay') return CONFIG.RELAY_RADIUS;
+  if (b.type === 'battery') return CONFIG.BATTERY_RADIUS;
   return 0;
 }
 function powerNodeOutput(b) {
@@ -1088,7 +1097,7 @@ function rebuildPowerTopology() {
 // 各設備の稼働可否（b.powered）を毎ティック確定する：
 // 供給＝ネットワーク内で現在発電中のノードの出力合計、需要＝そのネットワークが届く消費設備の消費量合計
 // 拠点電源（base）が常時ネットワークの一員になっているため、恩恵期間のような特別扱いは不要
-function tickPower(all) {
+function tickPower(all, dt) {
   if (powerTopologyDirty) rebuildPowerTopology();
   for (const net of powerNetworks) { net.supply = net.nodes.reduce((s, n) => s + powerNodeOutput(n), 0); net.demand = 0; }
   const assigned = [];
@@ -1098,9 +1107,37 @@ function tickPower(all) {
     if (net) net.demand += CONFIG.POWER_USE[b.type];
     assigned.push([b, net]);
   }
+  // 蓄電池の充放電（Phase4.11①）：供給が需要を上回るネットワークは余剰分を蓄電池へ充電し、
+  // 下回るネットワークは不足分を蓄電池から放電して補う。見かけ上の供給net.effectiveSupplyに
+  // 反映し、停電判定はこちらを使う（単発の発電機故障などによる網全体の停電を緩和する）。
+  // supply/demand/surplus/deficitは瞬時値（ワット相当）、charge/room/energyはエネルギー量なので、
+  // 両者をdtで変換する時に単位を揃えること（charge/dtやrate*dtを混同すると充放電が機能しない）
+  for (const net of powerNetworks) {
+    net.effectiveSupply = net.supply;
+    const batteries = net.nodes.filter(n => n.type === 'battery');
+    if (!batteries.length) continue;
+    if (net.supply >= net.demand) {
+      let surplus = net.supply - net.demand;   // ワット（余剰）
+      for (const bt of batteries) {
+        if (surplus <= 0) break;
+        const room = CONFIG.BATTERY_CAPACITY - (bt.charge || 0);
+        const rate = Math.min(CONFIG.BATTERY_CHARGE_RATE, surplus);   // このtickで使う充電レート（ワット）
+        const energy = Math.min(rate * dt, room);                     // 実際に貯まるエネルギー量
+        if (energy > 0) { bt.charge = (bt.charge || 0) + energy; surplus -= energy / dt; }
+      }
+    } else {
+      let deficit = net.demand - net.supply;   // ワット（不足）
+      for (const bt of batteries) {
+        if (deficit <= 0) break;
+        const maxRateFromCharge = dt > 0 ? (bt.charge || 0) / dt : 0; // 残エネルギーで維持できる最大レート
+        const rate = Math.min(CONFIG.BATTERY_DISCHARGE_RATE, deficit, maxRateFromCharge);
+        if (rate > 0) { bt.charge -= rate * dt; net.effectiveSupply += rate; deficit -= rate; }
+      }
+    }
+  }
   let newlyUnpowered = false;
   for (const [b, net] of assigned) {
-    const newPowered = !!(net && net.supply >= net.demand);
+    const newPowered = !!(net && net.effectiveSupply >= net.demand);
     if (!newPowered && b.powered !== false) {
       newlyUnpowered = true;   // このtickで新たに停電した設備がある（SEは1回にまとめる）
       // 初めて停電を経験した瞬間に、小型発電機・無線中継塔の存在を一度だけ案内する
@@ -2079,6 +2116,20 @@ function drawBuilding(b, sx, sy, s) {
     }
     ctx.fillStyle = live ? '#5ee6c8' : '#8f9bc4';
     ctx.beginPath(); ctx.arc(sx + s / 2, sy + u * 1.4, u * 0.6, 0, 7); ctx.fill();
+  } else if (b.type === 'battery') {
+    const pct = Math.max(0, Math.min(1, (b.charge || 0) / CONFIG.BATTERY_CAPACITY));
+    const bx = sx + u * 1.5, by = sy + u * 1.4, bw = s - u * 3, bh = s - u * 2.2;
+    ctx.fillStyle = '#2f3f57';
+    ctx.fillRect(bx, by, bw, bh);
+    ctx.fillStyle = '#4a5568';
+    ctx.fillRect(sx + s / 2 - u * 0.6, sy + u * 0.7, u * 1.2, u * 0.8); // 端子
+    // 充電量ゲージ：本体の枠内にパディングを取り、下から満ちる
+    const padX = u * 0.5, padY = u * 0.5;
+    const gw = bw - padX * 2, gh = (bh - padY * 2) * pct;
+    ctx.fillStyle = pct > 0.2 ? '#5ee6c8' : '#ff6b81';
+    if (gh > 0) ctx.fillRect(bx + padX, by + bh - padY - gh, gw, gh);
+    ctx.strokeStyle = '#1c2542'; ctx.lineWidth = Math.max(1, u * 0.15);
+    ctx.strokeRect(bx, by, bw, bh);
   }
   // 電力切れ（停電）の視覚表示：暗くして⚡に斜線
   if (CONFIG.POWER_USE[b.type] !== undefined && b.powered === false) {
@@ -2355,14 +2406,14 @@ function refreshOpenPanel() {
 const BUILD_CATEGORIES = [
   { id: 'basic', name: '🔧 基本',   items: ['miner', 'furnace', 'chest', 'workbench', 'generator'] },
   { id: 'auto',  name: '⚙️ 自動化', items: ['belt', 'arm', 'assembler', 'lab', 'splitter', 'chestIn', 'fastBelt', 'minerMk2', 'fastArm', 'filterArm'] },
-  { id: 'power', name: '⚡ 電力',   items: ['relay', 'advGenerator'] },
+  { id: 'power', name: '⚡ 電力',   items: ['relay', 'battery', 'advGenerator'] },
   { id: 'goal',  name: '📡 進行',   items: ['antenna', 'beacon'] },
 ];
 // 研究で解禁される設備の対応表。未解禁の間は建設メニューに出さない（Phase3.1のレシピ段階解放と同じ考え方）
 const BUILDING_RESEARCH_GATE = {
   splitter: 'splitter', chestIn: 'inputChest', fastBelt: 'fastBelt',
   minerMk2: 'minerMk2', fastArm: 'fastArm', filterArm: 'filterArm',
-  advGenerator: 'gate3Blueprint',
+  advGenerator: 'gate3Blueprint', battery: 'battery',
 };
 function buildingUnlocked(type) {
   const gate = BUILDING_RESEARCH_GATE[type];
@@ -2621,6 +2672,19 @@ function openBuilding(b, keep) {
     html = `<h2>📶 無線中継塔<button class="close-x">✕</button></h2>
       <div class="row"><div class="grow">${live ? '⚡ 発電機とつながっている（中継中）' : '⚠️ まだどの発電機ともつながっていない'}<br>
       <span class="cost">中継半径：${CONFIG.RELAY_RADIUS}マス。電力は消費しない（純粋な中継専用）。</span></div></div>` + removeBtn;
+  }
+  else if (b.type === 'battery') {
+    const charge = b.charge || 0;
+    const pct = Math.round(charge / CONFIG.BATTERY_CAPACITY * 100);
+    const net = powerNetworks.find(n => n.nodes.includes(b));
+    const status = !net ? '電力網に未接続'
+      : net.supply >= net.demand ? (charge >= CONFIG.BATTERY_CAPACITY ? '⚡ 満充電' : '⚡ 余剰電力を充電中')
+      : (charge > 0 ? '🔋 不足分を放電中' : '⚠️ 充電なし・供給不足を補えない');
+    html = `<h2>🔌 蓄電池<button class="close-x">✕</button></h2>
+      <div class="row"><div class="grow">${status}<br>
+      <span class="cost">容量${CONFIG.BATTERY_CAPACITY}・充電速度${CONFIG.BATTERY_CHARGE_RATE}/秒・放電速度${CONFIG.BATTERY_DISCHARGE_RATE}/秒</span></div></div>
+      <div class="row"><div class="grow">充電量：${Math.round(charge)}/${CONFIG.BATTERY_CAPACITY}（${pct}%）</div></div>
+      <div class="progress"><i style="width:${pct}%;background:var(--accent)"></i></div>` + removeBtn;
   }
   if (CONFIG.POWER_USE[b.type] !== undefined) {
     const statusRow = `<div class="row"><div class="grow" style="color:${b.powered ? 'var(--accent)' : 'var(--danger)'}">${b.powered ? '⚡ 電力供給中' : '⚡ 停電中（電力が届いていない、または不足している）'}</div></div>`;
@@ -3255,7 +3319,7 @@ function showOfflineReport(seconds, before, after) {
 // バージョンチェック（インストール済みPWAにコード更新が反映されない対策）
 // デプロイのたびにGAME_VERSIONを上げると、開いたままのPWAに更新通知が出せる
 // =====================================================================
-const GAME_VERSION = '4.10.0';
+const GAME_VERSION = '4.11.0';
 async function checkForUpdate() {
   try {
     // cache無視で自身(index.html)を再取得し、埋め込まれたGAME_VERSION表記を比較する
