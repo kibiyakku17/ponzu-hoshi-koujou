@@ -97,6 +97,11 @@
   #toast{position:fixed;top:calc(env(safe-area-inset-top,0) + 100px);left:50%;transform:translateX(-50%);
     background:rgba(10,15,32,.94);border:1px solid var(--accent);color:var(--text);
     padding:9px 16px;border-radius:10px;font-size:13px;z-index:40;display:none;max-width:86vw;text-align:center;}
+
+  /* ===== 留守中計算オーバーレイ ===== */
+  #offline-progress{position:fixed;inset:0;background:rgba(4,6,14,.92);z-index:60;display:none;
+    align-items:center;justify-content:center;flex-direction:column;gap:10px;color:var(--text);font-size:14px;text-align:center;}
+  #offline-progress .progress{width:70vw;max-width:280px;}
   #toast.warn{border-color:var(--warn);color:var(--warn);}
   #toast.danger{border-color:var(--danger);color:var(--danger);}
 
@@ -156,6 +161,10 @@
 <div id="update-banner">
   <span id="update-banner-text">🆕 新しいバージョンがあります。タップして更新</span>
   <button id="update-banner-close">✕</button>
+</div>
+<div id="offline-progress">
+  <div>🌙 留守中の生産を計算中…</div>
+  <div class="progress"><i id="offline-progress-bar" style="width:0%"></i></div>
 </div>
 
 <div id="clear-overlay">
@@ -3376,14 +3385,35 @@ function snapshotProduction() {
 }
 // 1秒刻みで tickMachines を繰り返し、通常プレイと同じロジックで不在時間分を早送りする
 // （枯渇・容量上限などはtick関数自体が処理するため、ここで特別扱いする必要はない）
-function simulateOffline(totalSeconds) {
+//
+// 不在時間（最大 OFFLINE_MAX_HOURS=4時間＝14400秒分）をすべて同期ループで一気に処理すると、
+// 設備数が多い終盤セーブほど・不在時間が長いほどメインスレッドを長時間ブロックしてしまう
+// （実測：504設備で4時間分＝約1.9秒、実機の遅いCPUや終盤の大規模セーブではこれが数十秒〜
+// 1〜2分に増幅されうる）。バックグラウンドで長時間放置されたPWAをOSがメモリ不足等で
+// 破棄し、復帰時に再読み込み（boot()の再実行）が発生するケースでは、プレイ中の任意の
+// タイミング（例：建設メニューでの選択操作）の直後にこの重い同期処理がそのまま発生し、
+// 「操作すると1〜2分固まってから自然に復帰する」という症状として現れていた。
+// 1フレーム分の時間予算（PROGRESS_BUDGET_MS）ごとに小分けにして、コミット手段は変えず
+// （STEP=1秒・tickMachinesの呼び出し方は従来通り）フレームの合間に処理を進める
+async function simulateOffline(totalSeconds, onProgress) {
   const STEP = 1;
+  const PROGRESS_BUDGET_MS = 8; // 1フレーム(16.6ms)のうち計算に使ってよい目安時間
   let remaining = totalSeconds;
+  const total = totalSeconds;
+  let sinceYield = performance.now();
   while (remaining > 0.001) {
     const step = Math.min(STEP, remaining);
     tickMachines(step);
     remaining -= step;
+    if (performance.now() - sinceYield >= PROGRESS_BUDGET_MS) {
+      if (onProgress) onProgress(1 - remaining / total);
+      // rAFはバックグラウンドタブ扱いだと止まる/大幅に間引かれる環境があるため、
+      // 可視状態に依存しないsetTimeoutでイベントループに制御を返す
+      await new Promise(r => setTimeout(r, 0));
+      sinceYield = performance.now();
+    }
   }
+  if (onProgress) onProgress(1);
 }
 function showOfflineReport(seconds, before, after) {
   const hrs = Math.floor(seconds / 3600), mins = Math.floor((seconds % 3600) / 60);
@@ -3406,7 +3436,7 @@ function showOfflineReport(seconds, before, after) {
 // バージョンチェック（インストール済みPWAにコード更新が反映されない対策）
 // デプロイのたびにGAME_VERSIONを上げると、開いたままのPWAに更新通知が出せる
 // =====================================================================
-const GAME_VERSION = '4.13.0';
+const GAME_VERSION = '4.14.0';
 async function checkForUpdate() {
   try {
     // cache無視で自身(index.html)を再取得し、埋め込まれたGAME_VERSION表記を比較する
@@ -3435,7 +3465,7 @@ document.getElementById('update-banner-close').onclick = (e) => {
 document.addEventListener('visibilitychange', () => { if (document.hidden) { clearTimeout(saveDebounceTimer); saveGame(); } });
 window.addEventListener('pagehide', () => { clearTimeout(saveDebounceTimer); saveGame(); });
 
-function boot() {
+async function boot() {
   resize();
   checkForUpdate();
   const hadSave = loadGame();
@@ -3446,7 +3476,11 @@ function boot() {
     const elapsedSec = Math.min(CONFIG.OFFLINE_MAX_HOURS * 3600, Math.max(0, (Date.now() - (G.lastSeen || Date.now())) / 1000));
     if (elapsedSec > CONFIG.OFFLINE_REPORT_MIN_SEC) {
       const before = snapshotProduction();
-      simulateOffline(elapsedSec);
+      const overlay = document.getElementById('offline-progress');
+      const bar = document.getElementById('offline-progress-bar');
+      overlay.style.display = 'flex';
+      await simulateOffline(elapsedSec, p => { bar.style.width = Math.round(p * 100) + '%'; });
+      overlay.style.display = 'none';
       const after = snapshotProduction();
       showOfflineReport(elapsedSec, before, after);
     }
