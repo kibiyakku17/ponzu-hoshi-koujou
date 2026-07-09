@@ -88,6 +88,11 @@
   .cost{font-size:11px;color:var(--sub);}
   .cost .ng{color:var(--danger);}
   #panel .close-x{margin-left:auto;background:none;border:none;color:var(--sub);font-size:22px;padding:2px 8px;}
+  /* ===== 建設メニュー：コンパクトカード（Phase4.15①） ===== */
+  .bm-tap{cursor:pointer;}
+  .bm-badge{display:inline-block;font-size:9px;font-weight:700;padding:1px 5px;border-radius:7px;margin-left:4px;vertical-align:middle;}
+  .bm-badge.new{background:#ffd94b;color:#3a2c00;}
+  .bm-badge.ok{background:var(--accent);color:#04150f;}
   .progress{height:8px;background:#0a0f20;border-radius:4px;overflow:hidden;border:1px solid var(--line);margin:4px 0;}
   .progress i{display:block;height:100%;background:var(--warn);}
   textarea{width:100%;height:90px;background:#0a0f20;color:var(--text);border:1px solid var(--line);
@@ -436,29 +441,30 @@ const ANALYSIS_LOGS = {
 };
 
 // ---- 設備定義 ----
+// short=建設メニューのコンパクトカードに出す1行説明、desc=詳細ポップアップに出す仕様説明（Phase4.15①）
 const BUILDINGS = {
   base:      { name: '拠点', icon: '🏠' },
-  miner:     { name: '採掘機', icon: '⛏️', desc: '鉱脈の上に設置。数秒ごとに自動で採掘し、隣の保管箱・精錬炉へ渡す。' },
-  furnace:   { name: '精錬炉', icon: '🔥', desc: '鉄鉱石→鉄板、石→石ブロックを自動で加工する。' },
-  chest:     { name: '保管箱', icon: '📦', desc: 'アイテムをしまえる箱。採掘機の隣に置くと自動で溜まる。' },
-  workbench: { name: '作業台', icon: '🔧', desc: '手動クラフト用。鉄板から部品を作れる。' },
-  antenna:   { name: '通信アンテナ', icon: '📡', desc: '拠点の近くに設置して起動すれば救難信号を送れる！' },
-  arm:       { name: 'アーム', icon: '🦾', desc: '後ろの設備/ベルトから受け取り、前の設備/ベルトへ渡す（数秒に1個）。設置後タップで90度回転。' },
-  belt:      { name: 'ベルト', icon: '➡️', desc: '乗ったアイテムを進行方向へ運ぶ。設備への出し入れはアーム経由。設置後タップで90度回転。' },
+  miner:     { name: '採掘機', icon: '⛏️', short: '鉱脈の上に置いて自動採掘', desc: '鉱脈の上に設置。数秒ごとに自動で採掘し、隣の保管箱・精錬炉へ渡す。' },
+  furnace:   { name: '精錬炉', icon: '🔥', short: '鉱石を鉄板・石ブロックへ加工', desc: '鉄鉱石→鉄板、石→石ブロックを自動で加工する。' },
+  chest:     { name: '保管箱', icon: '📦', short: 'アイテムをしまえる箱', desc: 'アイテムをしまえる箱。採掘機の隣に置くと自動で溜まる。' },
+  workbench: { name: '作業台', icon: '🔧', short: '手動クラフト・各種強化の拠点', desc: '手動クラフト用。鉄板から部品を作れる。' },
+  antenna:   { name: '通信アンテナ', icon: '📡', short: '起動して救難信号を送る', desc: '拠点の近くに設置して起動すれば救難信号を送れる！' },
+  arm:       { name: 'アーム', icon: '🦾', short: '隣の設備/ベルト間で受け渡し', desc: '後ろの設備/ベルトから受け取り、前の設備/ベルトへ渡す（数秒に1個）。設置後タップで90度回転。' },
+  belt:      { name: 'ベルト', icon: '➡️', short: 'アイテムを進行方向へ運ぶ', desc: '乗ったアイテムを進行方向へ運ぶ。設備への出し入れはアーム経由。設置後タップで90度回転。' },
   gate:      { name: '壊れたゲート', icon: '🚧' },
-  beacon:    { name: '誘導ビーコン', icon: '🛰️', desc: 'アンテナ起動後の最終目標。起動すると迎えの船に位置を知らせる。' },
-  assembler: { name: '組立機', icon: '⚙️', desc: 'レシピを選んで自動クラフト。材料は隣接/アーム経由で搬入、完成品はアームで搬出。' },
-  lab:       { name: '研究所', icon: '🔬', desc: '研究パックを消費して研究を進める。研究メニューから対象を選ぶ。' },
-  splitter:  { name: '分配器', icon: '↗️', desc: 'ベルト上で使う簡易スプリッタ。受け取ったアイテムを2方向へ交互に振り分ける。設置後タップで90度回転。' },
-  chestIn:   { name: '搬入口付き保管箱', icon: '📥', desc: 'ベルトから直接受け入れ、隣接する空きベルトへ自動で搬出もできる保管箱の上位版。容量は通常箱と同じ。' },
-  fastBelt:  { name: '高速ベルト', icon: '⏩', desc: '通常のベルトの2倍の速度で運ぶ。設置後タップで90度回転。ドラッグで連続設置。' },
-  minerMk2:  { name: '採掘機Mk2', icon: '⛏️', desc: '採掘範囲5×5、速度1.5倍の上位採掘機。' },
-  fastArm:   { name: '高速アーム', icon: '🦾', desc: '通常のアームの2倍の速度で動く。設置後タップで90度回転。' },
-  filterArm: { name: 'フィルタアーム', icon: '🎯', desc: '指定した1種類のアイテムだけを掴む。それ以外は素通りさせる。設置後タップで対象アイテムと向きを設定。' },
-  generator: { name: '小型発電機', icon: '🔋', desc: 'エネルギー結晶を消費して周囲に電力を送る（無線・半径15マス）。研究不要ですぐ作れる。' },
-  battery:   { name: '蓄電池', icon: '🔌', desc: '電力網に接続し、供給が余っている時に自動で充電、不足している時は放電して一時的な停電を防ぐ（発電量そのものは増えない）。' },
-  relay:     { name: '無線中継塔', icon: '📶', desc: '発電機または他の中継塔から半径15マス以内に置くと、そこからさらに半径15マスへ電力を中継する。電力は消費しない。' },
-  advGenerator: { name: '上位発電機', icon: '🔮', desc: 'アークコアを消費し、小型発電機より大幅に高い電力を発電する（無線・半径28マス）。第4エリアのゲート図面が必要。' },
+  beacon:    { name: '誘導ビーコン', icon: '🛰️', short: '起動して迎えの船に位置を知らせる', desc: 'アンテナ起動後の最終目標。起動すると迎えの船に位置を知らせる。' },
+  assembler: { name: '組立機', icon: '⚙️', short: 'レシピを選んで自動クラフト', desc: 'レシピを選んで自動クラフト。材料は隣接/アーム経由で搬入、完成品はアームで搬出。' },
+  lab:       { name: '研究所', icon: '🔬', short: '研究パックを消費して研究を進行', desc: '研究パックを消費して研究を進める。研究メニューから対象を選ぶ。' },
+  splitter:  { name: '分配器', icon: '↗️', short: 'ベルト上で2方向に交互振り分け', desc: 'ベルト上で使う簡易スプリッタ。受け取ったアイテムを2方向へ交互に振り分ける。設置後タップで90度回転。' },
+  chestIn:   { name: '搬入口付き保管箱', icon: '📥', short: 'ベルトから直接受け入れる保管箱', desc: 'ベルトから直接受け入れ、隣接する空きベルトへ自動で搬出もできる保管箱の上位版。容量は通常箱と同じ。' },
+  fastBelt:  { name: '高速ベルト', icon: '⏩', short: 'ベルトの2倍速版', desc: '通常のベルトの2倍の速度で運ぶ。設置後タップで90度回転。ドラッグで連続設置。' },
+  minerMk2:  { name: '採掘機Mk2', icon: '⛏️', short: '採掘機の上位版。範囲5×5・速度1.5倍', desc: '採掘範囲5×5、速度1.5倍の上位採掘機。' },
+  fastArm:   { name: '高速アーム', icon: '🦾', short: 'アームの2倍速版', desc: '通常のアームの2倍の速度で動く。設置後タップで90度回転。' },
+  filterArm: { name: 'フィルタアーム', icon: '🎯', short: '指定した1種類だけを掴むアーム', desc: '指定した1種類のアイテムだけを掴む。それ以外は素通りさせる。設置後タップで対象アイテムと向きを設定。' },
+  generator: { name: '小型発電機', icon: '🔋', short: 'エネルギー結晶で発電（無線送電）', desc: 'エネルギー結晶を消費して周囲に電力を送る（無線・半径15マス）。研究不要ですぐ作れる。' },
+  battery:   { name: '蓄電池', icon: '🔌', short: '電力の余剰を蓄え不足時に補う', desc: '電力網に接続し、供給が余っている時に自動で充電、不足している時は放電して一時的な停電を防ぐ（発電量そのものは増えない）。' },
+  relay:     { name: '無線中継塔', icon: '📶', short: '電力網を中継して届く範囲を広げる', desc: '発電機または他の中継塔から半径15マス以内に置くと、そこからさらに半径15マスへ電力を中継する。電力は消費しない。' },
+  advGenerator: { name: '上位発電機', icon: '🔮', short: 'アークコアで発電する上位発電機', desc: 'アークコアを消費し、小型発電機より大幅に高い電力を発電する（無線・半径28マス）。第4エリアのゲート図面が必要。' },
 };
 
 const SAVE_KEY = 'ponzu_hoshi_koujou_v1';
@@ -512,6 +518,7 @@ const G = {
   research: {},                     // 解除済み研究 id -> true
   researchProgress: {},             // 研究中の消費実績（グローバル）id -> {researchPack1:n, researchPack2:n}。複数の研究所が同じ技術に貢献できるようにするため
   discovered: {},                   // 素材図鑑：一度でも入手したことがあるアイテム id -> true
+  buildMenuSeen: {},                 // 建設メニューで一度でも表示したことがある設備 id -> true（NEWバッジの判定用。Phase4.15①）
   cleared: false,
   beaconCleared: false,
   lastSeen: Date.now(),
@@ -2456,12 +2463,14 @@ function refreshOpenPanel() {
 }
 
 // --- 建設メニュー ---
-// 建設メニューのカテゴリ分け（序盤の必須設備は「基本」1タブに収め、タブ切り替えなしで最初のアンテナ起動まで行けるようにする）
+// 建設メニューのカテゴリ分け：役割ベース（生産/搬送/電力/特殊）。設備数が増えて一覧性が
+// 落ちてきたため、序盤導線ベース（基本/自動化/電力/進行）から役割ベースへ変更した（Phase4.15①）。
+// カテゴリ内は「通常版→上位版」の並びで隣接配置し、シリーズを見つけやすくする
 const BUILD_CATEGORIES = [
-  { id: 'basic', name: '🔧 基本',   items: ['miner', 'furnace', 'chest', 'workbench', 'generator'] },
-  { id: 'auto',  name: '⚙️ 自動化', items: ['belt', 'arm', 'assembler', 'lab', 'splitter', 'chestIn', 'fastBelt', 'minerMk2', 'fastArm', 'filterArm'] },
-  { id: 'power', name: '⚡ 電力',   items: ['relay', 'battery', 'advGenerator'] },
-  { id: 'goal',  name: '📡 進行',   items: ['antenna', 'beacon'] },
+  { id: 'produce',   name: '⛏️ 生産', items: ['miner', 'minerMk2', 'furnace', 'workbench', 'assembler', 'lab'] },
+  { id: 'transport', name: '➡️ 搬送', items: ['belt', 'fastBelt', 'arm', 'fastArm', 'filterArm', 'splitter', 'chestIn', 'chest'] },
+  { id: 'power',     name: '⚡ 電力', items: ['generator', 'advGenerator', 'relay', 'battery'] },
+  { id: 'special',   name: '📡 特殊', items: ['antenna', 'beacon'] },
 ];
 // 研究で解禁される設備の対応表。未解禁の間は建設メニューに出さない（Phase3.1のレシピ段階解放と同じ考え方）
 const BUILDING_RESEARCH_GATE = {
@@ -2475,6 +2484,12 @@ function buildingUnlocked(type) {
   if (type === 'beacon') return G.cleared;
   return true;
 }
+// NEWバッジ：研究等で解禁されてからまだ建設メニューで見ていない設備にだけ出す（Phase4.15①）。
+// 最初から使える設備（研究ゲートが無いもの）は「新しく解禁された」わけではないので対象外
+function isNewBuilding(type) {
+  const gated = !!BUILDING_RESEARCH_GATE[type] || type === 'beacon';
+  return gated && buildingUnlocked(type) && !G.buildMenuSeen[type];
+}
 let buildMenuTab = null;
 function openBuildMenu(keep) {
   if (!buildMenuTab) buildMenuTab = BUILD_CATEGORIES[0].id;
@@ -2486,10 +2501,11 @@ function openBuildMenu(keep) {
   const list = cat.items.filter(buildingUnlocked);
   const rows = list.length ? list.map(t => {
     const ok = canAfford(CONFIG.COSTS[t]);
+    const badges = (isNewBuilding(t) ? '<span class="bm-badge new">NEW</span>' : '') + (ok ? '<span class="bm-badge ok">作成可能</span>' : '');
     return `<div class="row">
-      <div class="grow"><b>${BUILDINGS[t].icon} ${BUILDINGS[t].name}</b><br>
+      <div class="grow bm-tap" data-detail="${t}"><b>${BUILDINGS[t].icon} ${BUILDINGS[t].name}</b>${badges}<br>
         <span class="cost">${costText(CONFIG.COSTS[t])}</span><br>
-        <span class="cost">${BUILDINGS[t].desc}</span></div>
+        <span class="cost">${BUILDINGS[t].short}</span></div>
       <button class="btn ${ok ? 'primary' : ''}" data-build="${t}" ${ok ? '' : 'disabled'}>設置</button>
     </div>`;
   }).join('') : '<div class="row"><span class="cost">このカテゴリにはまだ何もない（研究で解禁されるものがあります）</span></div>';
@@ -2500,9 +2516,33 @@ function openBuildMenu(keep) {
   panelEl.querySelectorAll('[data-tab]').forEach(btn => {
     btn.onclick = () => { buildMenuTab = btn.dataset.tab; openBuildMenu(); };
   });
+  panelEl.querySelectorAll('[data-detail]').forEach(el => {
+    el.onclick = () => openBuildingDetail(el.dataset.detail);
+  });
   panelEl.querySelectorAll('[data-build]').forEach(btn => {
     btn.onclick = () => { buildMode = btn.dataset.build; placePreview = null; placementHistory = []; closePanel(); updateBuildModeUI(); };
   });
+  // このタブで表示した解禁済み設備は既読にする（次回以降NEWバッジを出さない）
+  let seenChanged = false;
+  for (const t of list) if (isNewBuilding(t)) { G.buildMenuSeen[t] = true; seenChanged = true; }
+  if (seenChanged) scheduleSave();
+}
+// 建設メニューのカードをタップした時の詳細ポップアップ：仕様説明・コストを確認してそのまま設置できる（Phase4.15①）
+function openBuildingDetail(type) {
+  const b = BUILDINGS[type];
+  const ok = canAfford(CONFIG.COSTS[type]);
+  showPanel(`<h2>${b.icon} ${b.name}<button class="close-x">✕</button></h2>
+    <div class="row"><div class="grow">${b.desc}</div></div>
+    <div class="row"><div class="grow">必要素材：${costText(CONFIG.COSTS[type])}</div></div>
+    <div style="margin-top:12px;display:flex;gap:8px">
+      <button class="btn" id="bd-back" style="flex:1">🔨 メニューへ戻る</button>
+      <button class="btn primary" id="bd-build" style="flex:1" ${ok ? '' : 'disabled'}>設置する</button>
+    </div>`);
+  openedPanel = null;
+  panelEl.querySelector('#bd-back').onclick = () => openBuildMenu();
+  panelEl.querySelector('#bd-build').onclick = () => {
+    buildMode = type; placePreview = null; placementHistory = []; closePanel(); updateBuildModeUI();
+  };
 }
 
 // --- 設備パネル ---
@@ -3074,6 +3114,7 @@ function makeSave() {
     research: G.research,
     researchProgress: G.researchProgress,
     discovered: G.discovered,
+    buildMenuSeen: G.buildMenuSeen || {},
     cleared: G.cleared,
     beaconCleared: !!G.beaconCleared,
     time: G.time,
@@ -3123,11 +3164,13 @@ function applySave(d) {
   G.research = d.research || {};
   G.researchProgress = d.researchProgress || {};
   G.discovered = d.discovered || {};
+  G.buildMenuSeen = d.buildMenuSeen || null; // nullなら旧セーブ→下のbackfillで補完
   G.cleared = !!d.cleared;
   G.beaconCleared = !!d.beaconCleared;
   G.time = d.time || 0;
   G.lastSeen = d.lastSeen || Date.now();
   backfillHadStoneBlock();
+  backfillBuildMenuSeen();
   markPowerTopologyDirty();
   buildMode = null;
   centerCamera(true);
@@ -3145,6 +3188,14 @@ function backfillHadStoneBlock() {
       if (src && src.stoneBlock > 0) { G.flags.had_stoneBlock = true; return; }
     }
   }
+}
+// 既存セーブ向け：buildMenuSeenが無い（Phase4.15より前の）セーブでは、既に解禁済みの設備を
+// 今さら「NEW」扱いにしないよう、現時点で解禁済みのものは最初から既読とみなす
+function backfillBuildMenuSeen() {
+  if (G.buildMenuSeen) return;
+  G.buildMenuSeen = {};
+  for (const t of Object.keys(BUILDING_RESEARCH_GATE)) if (buildingUnlocked(t)) G.buildMenuSeen[t] = true;
+  if (buildingUnlocked('beacon')) G.buildMenuSeen.beacon = true;
 }
 
 // Phase1（v1・48×48単一エリア）のセーブを新マップ形式（v2・第1＋第2エリア）へ移行
@@ -3436,7 +3487,7 @@ function showOfflineReport(seconds, before, after) {
 // バージョンチェック（インストール済みPWAにコード更新が反映されない対策）
 // デプロイのたびにGAME_VERSIONを上げると、開いたままのPWAに更新通知が出せる
 // =====================================================================
-const GAME_VERSION = '4.14.0';
+const GAME_VERSION = '4.15.0';
 async function checkForUpdate() {
   try {
     // cache無視で自身(index.html)を再取得し、埋め込まれたGAME_VERSION表記を比較する
