@@ -282,6 +282,13 @@ const CONFIG = {
     advGenerator: { starCrystalCore: 4, circuit: 6, part: 6 },
     gate3:    { part: 30, stoneBlock: 30, circuit: 20 },
   },
+  // その場アップグレードのコスト（アップグレード先の設備idがキー。差額計算ではなく固定値）。
+  // 目安：新規建設コストから、アップグレード元の設備の建設コストぶんを差し引いた額（Phase4.15②）
+  UPGRADE_COSTS: {
+    minerMk2: { ironPlate: 2, stoneBlock: 1, circuit: 1 },   // minerMk2新規(6,3,1) - miner(4,2,0)
+    fastBelt: { ironPlate: 1, copperWire: 1 },               // fastBelt新規(2,0,1) - belt(1,0,0)
+    fastArm:  { ironPlate: 1, part: 1, circuit: 1 },         // fastArm新規(2,2,1) - arm(1,1,0)
+  },
   // クラフトレシピ（作業台／組立機で共通）
   RECIPES: [
     { out: 'part', outN: 1, in: { ironPlate: 2 }, name: '部品' },
@@ -444,13 +451,13 @@ const ANALYSIS_LOGS = {
 // short=建設メニューのコンパクトカードに出す1行説明、desc=詳細ポップアップに出す仕様説明（Phase4.15①）
 const BUILDINGS = {
   base:      { name: '拠点', icon: '🏠' },
-  miner:     { name: '採掘機', icon: '⛏️', short: '鉱脈の上に置いて自動採掘', desc: '鉱脈の上に設置。数秒ごとに自動で採掘し、隣の保管箱・精錬炉へ渡す。' },
+  miner:     { name: '採掘機', icon: '⛏️', short: '鉱脈の上に置いて自動採掘', desc: '鉱脈の上に設置。数秒ごとに自動で採掘し、隣の保管箱・精錬炉へ渡す。', upgradesTo: 'minerMk2' },
   furnace:   { name: '精錬炉', icon: '🔥', short: '鉱石を鉄板・石ブロックへ加工', desc: '鉄鉱石→鉄板、石→石ブロックを自動で加工する。' },
   chest:     { name: '保管箱', icon: '📦', short: 'アイテムをしまえる箱', desc: 'アイテムをしまえる箱。採掘機の隣に置くと自動で溜まる。' },
   workbench: { name: '作業台', icon: '🔧', short: '手動クラフト・各種強化の拠点', desc: '手動クラフト用。鉄板から部品を作れる。' },
   antenna:   { name: '通信アンテナ', icon: '📡', short: '起動して救難信号を送る', desc: '拠点の近くに設置して起動すれば救難信号を送れる！' },
-  arm:       { name: 'アーム', icon: '🦾', short: '隣の設備/ベルト間で受け渡し', desc: '後ろの設備/ベルトから受け取り、前の設備/ベルトへ渡す（数秒に1個）。設置後タップで90度回転。' },
-  belt:      { name: 'ベルト', icon: '➡️', short: 'アイテムを進行方向へ運ぶ', desc: '乗ったアイテムを進行方向へ運ぶ。設備への出し入れはアーム経由。設置後タップで90度回転。' },
+  arm:       { name: 'アーム', icon: '🦾', short: '隣の設備/ベルト間で受け渡し', desc: '後ろの設備/ベルトから受け取り、前の設備/ベルトへ渡す（数秒に1個）。設置後タップで90度回転。', upgradesTo: 'fastArm' },
+  belt:      { name: 'ベルト', icon: '➡️', short: 'アイテムを進行方向へ運ぶ', desc: '乗ったアイテムを進行方向へ運ぶ。設備への出し入れはアーム経由。設置後タップで90度回転。', upgradesTo: 'fastBelt' },
   gate:      { name: '壊れたゲート', icon: '🚧' },
   beacon:    { name: '誘導ビーコン', icon: '🛰️', short: '起動して迎えの船に位置を知らせる', desc: 'アンテナ起動後の最終目標。起動すると迎えの船に位置を知らせる。' },
   assembler: { name: '組立機', icon: '⚙️', short: 'レシピを選んで自動クラフト', desc: 'レシピを選んで自動クラフト。材料は隣接/アーム経由で搬入、完成品はアームで搬出。' },
@@ -989,6 +996,27 @@ function removeBuilding(b) {
   markDirty(); scheduleSave();
 }
 function payCostRefund(cost) { for (const [k, v] of Object.entries(cost)) invAdd(G.player.inv, k, v); }
+// その場アップグレード（Phase4.15②）：miner→minerMk2／belt→fastBelt／arm→fastArmのみ対象。
+// 対象の設備はtryPlace()で生成される時点から通常版・上位版でプロパティの形が完全に一致しており
+// （buffer/timer、item/progress/dir、timerなど）、typeを差し替えるだけで向き・接続・バッファの
+// 中身・ベルト上のアイテム・進行度のいずれも失われずに引き継がれる（安全性はtryPlace実装を確認して判断）。
+// 発電機系統は対象外（燃料の系統が異なるため。BUILDINGS側でupgradesToを設定しない）
+function canUpgrade(b) {
+  const nextType = BUILDINGS[b.type] && BUILDINGS[b.type].upgradesTo;
+  return !!nextType && buildingUnlocked(nextType);
+}
+function upgradeBuilding(b) {
+  const nextType = BUILDINGS[b.type] && BUILDINGS[b.type].upgradesTo;
+  if (!nextType || !buildingUnlocked(nextType)) return;
+  const cost = CONFIG.UPGRADE_COSTS[nextType];
+  if (!cost || !canAfford(cost)) return;
+  payCost(cost);
+  const oldName = BUILDINGS[b.type].name;
+  b.type = nextType;   // 向き・バッファ・搬送中アイテム等は同じプロパティ名のまま引き継がれる
+  toast(`⬆️ ${oldName}を${BUILDINGS[nextType].name}にアップグレードした！`);
+  sfxResearchDone();
+  markDirty(); scheduleSave();
+}
 // 「元に戻す」：placementHistoryの末尾から1件ずつ取り消す。押すたびにさかのぼれるスタック方式（Phase4.6③）
 function undoLastPlacement() {
   if (!placementHistory.length) return;
@@ -2551,6 +2579,14 @@ function openBuilding(b, keep) {
   const inv = G.player.inv;
   let html = '';
   const removeBtn = `<div style="margin-top:14px"><button class="btn danger" id="pb-remove">🗑 撤去する（材料は返却）</button></div>`;
+  // その場アップグレード（Phase4.15②）：miner/belt/armのみ対象。研究で解禁済み、かつ対象タイプに
+  // upgradesToがある場合だけボタンを出す（minerMk2/fastBelt/fastArm自身はupgradesToが無いため出ない）
+  const upgradeTarget = BUILDINGS[b.type] && BUILDINGS[b.type].upgradesTo;
+  const upgradeBtn = canUpgrade(b) ? (() => {
+    const cost = CONFIG.UPGRADE_COSTS[upgradeTarget];
+    const ok = canAfford(cost);
+    return `<div style="margin-top:10px"><button class="btn ${ok ? 'primary' : ''}" id="pb-upgrade" ${ok ? '' : 'disabled'}>⬆️ ${BUILDINGS[upgradeTarget].name}にアップグレード（${costText(cost)}）</button></div>`;
+  })() : '';
 
   if (b.type === 'base') {
     html = `<h2>🏠 拠点<button class="close-x">✕</button></h2>
@@ -2571,7 +2607,7 @@ function openBuilding(b, keep) {
       <div class="row"><div class="grow">内部バッファ：${bufTotal}/${CONFIG.MINER_BUFFER}<br>
         <span class="cost">${Object.entries(b.buffer).map(([k, v]) => ITEMS[k].name + '×' + v).join('　') || 'からっぽ'}</span></div>
         <button class="btn primary" id="pb-collect" ${bufTotal ? '' : 'disabled'}>回収する</button></div>
-      <div class="row"><span class="cost">隣接の保管箱・精錬炉へ自動受け渡し。アームで離れた設備にも搬送できるよ</span></div>` + removeBtn;
+      <div class="row"><span class="cost">隣接の保管箱・精錬炉へ自動受け渡し。アームで離れた設備にも搬送できるよ</span></div>` + upgradeBtn + removeBtn;
   }
   else if (b.type === 'furnace') {
     const prog = b.job ? Math.round(b.progress / CONFIG.SMELT_TIME * 100) : 0;
@@ -2713,7 +2749,7 @@ function openBuilding(b, keep) {
     const title = b.type === 'fastArm' ? '🦾 高速アーム' : '🦾 アーム';
     html = `<h2>${title}（向き：${DIR_VEC[b.dir].n}）<button class="close-x">✕</button></h2>
       <div class="row"><div class="grow">後ろ側の設備/ベルトから1個取り、前（${DIR_VEC[b.dir].n}側）の設備/ベルトへ渡す。</div></div>
-      <div style="margin-top:10px"><button class="btn primary" id="pb-rotate" style="width:100%;padding:12px;">🔄 90度回転</button></div>` + removeBtn;
+      <div style="margin-top:10px"><button class="btn primary" id="pb-rotate" style="width:100%;padding:12px;">🔄 90度回転</button></div>` + upgradeBtn + removeBtn;
   }
   else if (b.type === 'filterArm') {
     const itemOptions = Object.keys(ITEMS).map(k => `<div class="row">
@@ -2730,7 +2766,7 @@ function openBuilding(b, keep) {
     const title = b.type === 'fastBelt' ? '⏩ 高速ベルト' : '➡️ ベルト';
     html = `<h2>${title}（向き：${DIR_VEC[b.dir].n}）<button class="close-x">✕</button></h2>
       <div class="row"><div class="grow">乗ったアイテムを${DIR_VEC[b.dir].n}方向へ運ぶ。${b.item ? '現在：' + ITEMS[b.item].name : '空き'}</div></div>
-      <div style="margin-top:10px"><button class="btn primary" id="pb-rotate" style="width:100%;padding:12px;">🔄 90度回転</button></div>` + removeBtn;
+      <div style="margin-top:10px"><button class="btn primary" id="pb-rotate" style="width:100%;padding:12px;">🔄 90度回転</button></div>` + upgradeBtn + removeBtn;
   }
   else if (b.type === 'splitter') {
     html = `<h2>↗️ 分配器（向き：${DIR_VEC[b.dir].n}）<button class="close-x">✕</button></h2>
@@ -2862,6 +2898,10 @@ function openBuilding(b, keep) {
   };
   panelEl.querySelectorAll('[data-craft]').forEach(btn => btn.addEventListener('click', () => craft(+btn.dataset.craft, 1)));
   panelEl.querySelectorAll('[data-craft5]').forEach(btn => btn.addEventListener('click', () => craft(+btn.dataset.craft5, 5)));
+  panelEl.querySelector('#pb-upgrade')?.addEventListener('click', () => {
+    upgradeBuilding(b);
+    openBuilding(b);
+  });
   panelEl.querySelector('#pb-activate')?.addEventListener('click', () => activateAntenna(b));
   panelEl.querySelector('#pb-rotate')?.addEventListener('click', () => {
     b.dir = (b.dir + 1) % 4;
@@ -3487,7 +3527,7 @@ function showOfflineReport(seconds, before, after) {
 // バージョンチェック（インストール済みPWAにコード更新が反映されない対策）
 // デプロイのたびにGAME_VERSIONを上げると、開いたままのPWAに更新通知が出せる
 // =====================================================================
-const GAME_VERSION = '4.15.0';
+const GAME_VERSION = '4.16.0';
 async function checkForUpdate() {
   try {
     // cache無視で自身(index.html)を再取得し、埋め込まれたGAME_VERSION表記を比較する
