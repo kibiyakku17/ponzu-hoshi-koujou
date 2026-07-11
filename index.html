@@ -576,6 +576,9 @@ function moveSpeedMult() {
 function invCount(inv, item) { return inv[item] || 0; }
 function invAdd(inv, item, n) { inv[item] = (inv[item] || 0) + n; if (inv[item] <= 0) delete inv[item]; }
 function invTotal(inv) { return Object.values(inv).reduce((a, b) => a + b, 0); }
+function transferAll(from, to) {
+  for (const [item, count] of Object.entries(from)) invAdd(to, item, count);
+}
 function battMax() {
   // 作業台のバッテリー拡張・探査強化研究・ぽん太強化は重複して掛かる
   return CONFIG.BATTERY_MAX
@@ -1042,19 +1045,22 @@ function firstKey(obj) { const ks = Object.keys(obj); return ks.length ? ks[0] :
 // フィルタアーム対応（バグ修正）：wantItem無指定だとfirstKeyしか見ないため、混在鉱脈の採掘機バッファ等で
 // 先頭に無い種類（例:銅鉱石）がいつまでも掴めなかった。フィルタアームは常にwantItemを渡して直接その種類を探す
 function peekSpecific(inv, wantItem) { return invCount(inv, wantItem) > 0 ? wantItem : null; }
+const BUILDING_OUTPUT_SLOT = {
+  chest: 'inv', chestIn: 'inv', furnace: 'output', miner: 'buffer', minerMk2: 'buffer', assembler: 'output',
+};
+const BUILDING_INPUT_SLOT = {
+  chest: 'inv', chestIn: 'inv', furnace: 'input', assembler: 'input', lab: 'input', generator: 'input', advGenerator: 'input',
+};
+function buildingSlot(b, slots) { const key = slots[b.type]; return key ? b[key] : null; }
 function bldPeekOutput(b, wantItem) {
-  if (b.type === 'chest' || b.type === 'chestIn') return wantItem ? peekSpecific(b.inv, wantItem) : firstKey(b.inv);
-  if (b.type === 'furnace') return wantItem ? peekSpecific(b.output, wantItem) : firstKey(b.output);
-  if (b.type === 'miner' || b.type === 'minerMk2') return wantItem ? peekSpecific(b.buffer, wantItem) : firstKey(b.buffer);
-  if (b.type === 'assembler') return wantItem ? peekSpecific(b.output, wantItem) : firstKey(b.output);
+  const output = buildingSlot(b, BUILDING_OUTPUT_SLOT);
+  if (output) return wantItem ? peekSpecific(output, wantItem) : firstKey(output);
   if (isBeltLike(b.type)) return wantItem ? (b.item === wantItem ? b.item : null) : b.item;
   return null;
 }
 function bldRemoveOne(b, item) {
-  if (b.type === 'chest' || b.type === 'chestIn') invAdd(b.inv, item, -1);
-  else if (b.type === 'furnace') invAdd(b.output, item, -1);
-  else if (b.type === 'miner' || b.type === 'minerMk2') invAdd(b.buffer, item, -1);
-  else if (b.type === 'assembler') invAdd(b.output, item, -1);
+  const output = buildingSlot(b, BUILDING_OUTPUT_SLOT);
+  if (output) invAdd(output, item, -1);
   else if (isBeltLike(b.type)) { b.item = null; b.progress = 0; }
 }
 function bldCanInsert(b, item) {
@@ -1079,11 +1085,8 @@ function bldCanInsert(b, item) {
   return false;
 }
 function bldInsert(b, item) {
-  if (b.type === 'chest' || b.type === 'chestIn') invAdd(b.inv, item, 1);
-  else if (b.type === 'furnace') invAdd(b.input, item, 1);
-  else if (b.type === 'assembler') invAdd(b.input, item, 1);
-  else if (b.type === 'lab') invAdd(b.input, item, 1);
-  else if (b.type === 'generator' || b.type === 'advGenerator') invAdd(b.input, item, 1);
+  const input = buildingSlot(b, BUILDING_INPUT_SLOT);
+  if (input) invAdd(input, item, 1);
   else if (isBeltLike(b.type)) { b.item = item; b.progress = 0; }
 }
 // 中身プレビュー用：設備が持つ在庫系プロパティ(buffer/input/output/inv)をまとめて集計
@@ -1096,26 +1099,27 @@ function bldOverlayInv(b) {
   return merged;
 }
 
+const MACHINE_TICKERS = {
+  miner: tickMiner, minerMk2: tickMiner,
+  furnace: tickFurnace,
+  assembler: tickAssembler,
+  lab: tickLab,
+  arm: tickArm, fastArm: tickArm, filterArm: tickArm,
+  belt: tickBelt, fastBelt: tickBelt,
+  splitter: tickSplitter,
+  chestIn: tickChestIn,
+};
 function tickMachines(dt) {
   // Object.values(G.buildings)は配列を新規生成するため、1フレームに何度も呼ぶと設備数に比例して無駄が増える。
   // 1回だけ呼んで使い回す（Phase4.6①）
   const all = Object.values(G.buildings);
   // 発電機の燃料消費（発電の可否）を先に確定してから、電力ネットワークの需給を計算する
-  for (const b of all) {
-    if (b.type === 'generator' || b.type === 'advGenerator') tickGenerator(b, dt);
-  }
+  for (const b of all) if (b.type === 'generator' || b.type === 'advGenerator') tickGenerator(b, dt);
   tickPower(all, dt);
   for (const b of all) {
     // 電力を必要とする設備は、停電中（b.powered===false）は完全停止する
     if (CONFIG.POWER_USE[b.type] !== undefined && !b.powered) continue;
-    if (b.type === 'miner' || b.type === 'minerMk2') tickMiner(b, dt);
-    else if (b.type === 'furnace') tickFurnace(b, dt);
-    else if (b.type === 'assembler') tickAssembler(b, dt);
-    else if (b.type === 'lab') tickLab(b, dt);
-    else if (b.type === 'arm' || b.type === 'fastArm' || b.type === 'filterArm') tickArm(b, dt);
-    else if (b.type === 'belt' || b.type === 'fastBelt') tickBelt(b, dt);
-    else if (b.type === 'splitter') tickSplitter(b, dt);
-    else if (b.type === 'chestIn') tickChestIn(b, dt);
+    MACHINE_TICKERS[b.type]?.(b, dt);
   }
 }
 
@@ -1138,22 +1142,16 @@ function tickGenerator(b, dt) {
 }
 // 拠点電源（base）は燃料切れなしの常時稼働電源として扱う。既存セーブもbase建物は必ず存在するため、
 // 移行処理を書かなくてもロードした瞬間から拠点電源が有効になる
-function isPowerNode(b) { return b.type === 'base' || b.type === 'generator' || b.type === 'advGenerator' || b.type === 'relay' || b.type === 'battery'; }
-function powerNodeRadius(b) {
-  if (b.type === 'base') return CONFIG.BASE_POWER_RADIUS;
-  if (b.type === 'generator') return CONFIG.GEN_RADIUS;
-  if (b.type === 'advGenerator') return CONFIG.ADV_GEN_RADIUS;
-  if (b.type === 'relay') return CONFIG.RELAY_RADIUS;
-  if (b.type === 'battery') return CONFIG.BATTERY_RADIUS;
-  return 0;
-}
-function powerNodeOutput(b) {
-  if (b.type === 'base') return CONFIG.BASE_POWER_OUTPUT;
-  if (!b.active) return 0;
-  if (b.type === 'generator') return CONFIG.GEN_OUTPUT;
-  if (b.type === 'advGenerator') return CONFIG.ADV_GEN_OUTPUT;
-  return 0;
-}
+const POWER_NODE_CONFIG = {
+  base: { radius: () => CONFIG.BASE_POWER_RADIUS, output: () => CONFIG.BASE_POWER_OUTPUT },
+  generator: { radius: () => CONFIG.GEN_RADIUS, output: b => b.active ? CONFIG.GEN_OUTPUT : 0 },
+  advGenerator: { radius: () => CONFIG.ADV_GEN_RADIUS, output: b => b.active ? CONFIG.ADV_GEN_OUTPUT : 0 },
+  relay: { radius: () => CONFIG.RELAY_RADIUS, output: () => 0 },
+  battery: { radius: () => CONFIG.BATTERY_RADIUS, output: () => 0 },
+};
+function isPowerNode(b) { return !!POWER_NODE_CONFIG[b.type]; }
+function powerNodeRadius(b) { return POWER_NODE_CONFIG[b.type]?.radius() || 0; }
+function powerNodeOutput(b) { return POWER_NODE_CONFIG[b.type]?.output(b) || 0; }
 // 発電機・中継塔の位置関係（Union-Find）だけを対象にした「電力網」の再計算。
 // 設備の設置・撤去時にのみ呼べばよい（消費設備が増減しても網の形自体は変わらないため）
 let powerNetworks = [];
@@ -2836,11 +2834,11 @@ function openBuilding(b, keep) {
   // ボタン配線
   panelEl.querySelector('#pb-remove')?.addEventListener('click', () => removeBuilding(b));
   panelEl.querySelector('#pb-collect')?.addEventListener('click', () => {
-    for (const [k, v] of Object.entries(b.buffer)) invAdd(inv, k, v);
+    transferAll(b.buffer, inv);
     b.buffer = {}; markDirty(); scheduleSave();
   });
   panelEl.querySelector('#pb-takeout')?.addEventListener('click', () => {
-    for (const [k, v] of Object.entries(b.output)) invAdd(inv, k, v);
+    transferAll(b.output, inv);
     b.output = {}; markDirty(); scheduleSave();
   });
   panelEl.querySelectorAll('[data-in]').forEach(btn => btn.addEventListener('click', () => {
@@ -2854,7 +2852,7 @@ function openBuilding(b, keep) {
     const techId = btn.dataset.labTech;
     if (b.currentTech === techId) return;
     // 研究対象を切り替える時は投入済みパックをプレイヤーへ返却する（グローバル進捗は他の研究所と共有のため保持）
-    for (const [k, v] of Object.entries(b.input)) invAdd(inv, k, v);
+    transferAll(b.input, inv);
     b.input = {}; b.job = null; b.progress = 0;
     b.currentTech = techId;
     markDirty(); scheduleSave();
@@ -2864,7 +2862,7 @@ function openBuilding(b, keep) {
     const newRecipe = btn.dataset.assemblerRecipe;
     if (b.recipeOut === newRecipe) return;
     // レシピ変更時は投入済みの材料をプレイヤーへ返却（違う材料が機内に残らないように）
-    for (const [k, v] of Object.entries(b.input)) invAdd(inv, k, v);
+    transferAll(b.input, inv);
     b.input = {}; b.job = null; b.progress = 0;
     b.recipeOut = newRecipe;
     markDirty(); scheduleSave();
@@ -3527,7 +3525,7 @@ function showOfflineReport(seconds, before, after) {
 // バージョンチェック（インストール済みPWAにコード更新が反映されない対策）
 // デプロイのたびにGAME_VERSIONを上げると、開いたままのPWAに更新通知が出せる
 // =====================================================================
-const GAME_VERSION = '4.16.0';
+const GAME_VERSION = '4.17.0';
 async function checkForUpdate() {
   try {
     // cache無視で自身(index.html)を再取得し、埋め込まれたGAME_VERSION表記を比較する
