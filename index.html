@@ -620,10 +620,10 @@ function genAreaLocal(rng, opts) {
     return false;
   }
   // minGapを指定した呼び出しのみ、別タイプの鉱脈との最低間隔を守る（拠点/ゲート横の保証枠は指定せず優先する）
-  function placeVein(type, cx, cy, size, minGap, veinRng = rng) {
+  function placeVein(type, cx, cy, size, minGap, veinRng = rng, canPlace = null) {
     let x = cx, y = cy, placed = 0;
     for (let s = 0; s < size * 3 && placed < size; s++) {
-      if (linMap(x, y) && tiles[lidx(x, y)] === T_PLAIN && !nearDifferentOre(x, y, type, minGap)) {
+      if (linMap(x, y) && (!canPlace || canPlace(x, y)) && tiles[lidx(x, y)] === T_PLAIN && !nearDifferentOre(x, y, type, minGap)) {
         tiles[lidx(x, y)] = type;
         ore[lidx(x, y)] = (CONFIG.ORE_MIN + Math.floor(veinRng() * (CONFIG.ORE_MAX - CONFIG.ORE_MIN))) * CONFIG.ORE_VEIN_MULT;
         placed++;
@@ -677,14 +677,37 @@ function genAreaLocal(rng, opts) {
   // 鉱種間隔や岩との競合で結晶の配置試行がほぼ消えることがあるため、序盤エリアだけ最低数を保証する。
   // 専用乱数を使い、補充の有無で後続エリアの地形が変わらないようにする。
   if (opts.crystalMinTiles) {
-    let crystalTiles = tiles.reduce((n, tile) => n + (tile === T_CRYSTAL ? 1 : 0), 0);
+    // genMap()末尾の外周封鎖・ゲート開口で消えない座標だけを保証数に数える。
+    // ゲートは境界の外側1マスまで平地へ戻すため、接するエリア端のGATE_Yも除外する。
+    const survivesFinalCarving = (x, y) =>
+      y >= BORDER_W && y < MAP_H - BORDER_W &&
+      (!opts.outerLeft || x >= BORDER_W) &&
+      !(y === GATE_Y && ((opts.gateLeft && x === 0) || (opts.gateRight && x === LN - 1)));
+    let crystalTiles = 0;
+    for (let y = 0; y < MAP_H; y++) for (let x = 0; x < LN; x++) {
+      if (survivesFinalCarving(x, y) && tiles[lidx(x, y)] === T_CRYSTAL) crystalTiles++;
+    }
     const topUpRng = mulberry32(opts.crystalTopUpSeed);
     for (let attempt = 0; crystalTiles < opts.crystalMinTiles && attempt < 80; attempt++) {
       let x, y, guard = 0;
       do { x = Math.floor(topUpRng() * LN); y = Math.floor(topUpRng() * MAP_H); }
       while (opts.hasBase && Math.hypot(x - bx, y - by) < 12 && ++guard < 50);
       const size = Math.min(5, Math.max(3, opts.crystalMinTiles - crystalTiles));
-      crystalTiles += placeVein(T_CRYSTAL, x, y, size, gap, topUpRng);
+      crystalTiles += placeVein(T_CRYSTAL, x, y, size, gap, topUpRng, survivesFinalCarving);
+    }
+    // ランダムウォークが80回とも岩や他鉱脈へ阻まれても、保証値だけは必ず満たす。
+    // まず鉱種間隔を守って決定的に走査し、それでも不足する極端な地形だけ間隔を緩める。
+    const start = Math.floor(topUpRng() * tiles.length);
+    for (const keepGap of [true, false]) {
+      for (let offset = 0; crystalTiles < opts.crystalMinTiles && offset < tiles.length; offset++) {
+        const li = (start + offset) % tiles.length;
+        const x = li % LN, y = Math.floor(li / LN);
+        if (!survivesFinalCarving(x, y) || tiles[li] !== T_PLAIN || (keepGap && nearDifferentOre(x, y, T_CRYSTAL, gap))) continue;
+        tiles[li] = T_CRYSTAL;
+        ore[li] = (CONFIG.ORE_MIN + Math.floor(topUpRng() * (CONFIG.ORE_MAX - CONFIG.ORE_MIN))) * CONFIG.ORE_VEIN_MULT;
+        crystalTiles++;
+      }
+      if (crystalTiles >= opts.crystalMinTiles) break;
     }
   }
 
@@ -754,9 +777,9 @@ function genMap(seed) {
   G.tiles.fill(T_ROCK);
   G.ore.fill(0);
 
-  const area1 = genAreaLocal(rng, { hasBase: true, rockClusters: 30, crystalMinTiles: CONFIG.EARLY_CRYSTAL_MIN_TILES, crystalTopUpSeed: seed ^ 0x43525931 });
+  const area1 = genAreaLocal(rng, { hasBase: true, outerLeft: true, gateRight: true, rockClusters: 30, crystalMinTiles: CONFIG.EARLY_CRYSTAL_MIN_TILES, crystalTopUpSeed: seed ^ 0x43525931 });
   pasteArea(area1, 0);
-  const area2 = genAreaLocal(rng, { hasBase: false, copper: true, rockClusters: 24, crystalMinTiles: CONFIG.EARLY_CRYSTAL_MIN_TILES, crystalTopUpSeed: seed ^ 0x43525932 });
+  const area2 = genAreaLocal(rng, { hasBase: false, copper: true, gateLeft: true, gateRight: true, rockClusters: 24, crystalMinTiles: CONFIG.EARLY_CRYSTAL_MIN_TILES, crystalTopUpSeed: seed ^ 0x43525932 });
   pasteArea(area2, AREA_W + BORDER_W);
   // 第3エリア：既存資源(銅・結晶中心)の高密度配置。新資源タイプは追加しない
   const area3 = genAreaLocal(rng, { hasBase: false, copper: true, copperVeins: 14, crystalVeins: 12, ironVeins: 3, stoneVeins: 3, rockClusters: 18 });
@@ -1240,7 +1263,7 @@ function tickPower(all, dt) {
       // （序盤から強制的に発電機を作らせず、実際に電力が必要になったタイミングで気づかせる）
       if (!G.flags.hintPowerShown) {
         G.flags.hintPowerShown = true;
-        toast('⚡ 電力が足りない！🔨建設メニューの「基本」から小型発電機を、「電力」から無線中継塔を作って電力網を広げよう', undefined, 5500, true);
+        toast('⚡ 電力が足りない！🔨建設メニューの「電力」から小型発電機や無線中継塔を作って電力網を広げよう', undefined, 5500, true);
         saveGame();
       }
     }
@@ -1468,7 +1491,8 @@ function tickMiner(b, dt) {
     if (invTotal(b.buffer) >= CONFIG.MINER_BUFFER) return; // 満杯：待機（timerは保持）
     invAdd(b.buffer, item, 1);
   }
-  b.timer = 0;
+  // 2.67秒など0.5秒刻みで割り切れない間隔も、余りを次回へ持ち越して留守中だけ遅くならないようにする。
+  b.timer = Math.min(dt, Math.max(0, b.timer - minerInterval(b)));
   const vi = idx(vein.x, vein.y);
   // 内部埋蔵量はORE_VEIN_MULT倍で保持しているため、1個産出するごとにその倍率ぶん消費する
   // （産出間隔・産出量・鉱脈が尽きるまでの時間は倍率導入前と変わらない）
@@ -3239,20 +3263,38 @@ function openSettings() {
       const raw = JSON.parse(panelEl.querySelector('#st-json').value);
       const result = raw && typeof raw.v === 'number' ? migrateToLatest(raw) : null;
       if (!result) throw new Error('bad');
-      applySave(result.data);
+      // 保存領域への書き込みが成功してからゲーム状態を切り替える。
+      // これで容量超過や不正データ時に、メモリだけ半端に切り替わることを防ぐ。
+      const previousRaw = localStorage.getItem(SAVE_KEY);
       localStorage.setItem(SAVE_KEY, JSON.stringify(result.data));
+      if (!applySaveSafely(result.data)) {
+        try {
+          if (previousRaw === null) localStorage.removeItem(SAVE_KEY);
+          else localStorage.setItem(SAVE_KEY, previousRaw);
+        } catch (restoreError) { /* 元データの復元も失敗した場合は下の警告で知らせる */ }
+        throw new Error('apply');
+      }
+      suppressSave = false;
       closePanel();
       toast('セーブデータを読み込んだ！');
-    } catch { toast('読み込み失敗…JSONを確認してね', 'danger'); }
+    } catch { toast('読み込み失敗…。JSONと端末の保存容量を確認してね', 'danger', 6500, true); }
   };
-  panelEl.querySelector('#st-save').onclick = () => { saveGame(); toast('セーブした！'); };
+  panelEl.querySelector('#st-save').onclick = () => {
+    if (saveGame(true)) toast('セーブした！');
+  };
   panelEl.querySelector('#st-reset').onclick = () => {
     if (confirm('セーブデータを消して最初からやり直す？')) {
+      const wasSuppressed = suppressSave;
       suppressSave = true;
-      localStorage.removeItem(SAVE_KEY);
-      // location.reload()はブラウザ/PWAのキャッシュから古いページを再利用してしまうことがあるため、
-      // クエリを変えて別URL扱いにし確実にネットワークから読み直させる
-      location.href = location.pathname + '?reset=' + Date.now();
+      try {
+        localStorage.removeItem(SAVE_KEY);
+        // location.reload()はブラウザ/PWAのキャッシュから古いページを再利用してしまうことがあるため、
+        // クエリを変えて別URL扱いにし確実にネットワークから読み直させる
+        location.href = location.pathname + '?reset=' + Date.now();
+      } catch (e) {
+        suppressSave = wasSuppressed;
+        toast('セーブデータを削除できませんでした。ブラウザの保存設定を確認してね', 'danger', 6500, true);
+      }
     }
   };
 }
@@ -3396,15 +3438,171 @@ function makeSave() {
     lastSeen: G.lastSeen,
   };
 }
+
+// 読み込み前に、各セーブ世代のマップ寸法と最低限の状態構造を検証する。
+// 移行の各段階でも呼ぶため、古い幅の取り違えによる静かな地形破損も検出できる。
+function saveMapSizeForVersion(v) {
+  if (v === 1) return { w: 48, h: 48 };
+  if (v === 2) return { w: AREA_W * 2 + BORDER_W, h: MAP_H };
+  if (v >= 3 && v <= 5) return { w: AREA_W * 3 + BORDER_W * 2, h: MAP_H };
+  if (v >= 6 && v <= SAVE_VERSION) return { w: W, h: H };
+  return null;
+}
+function isPlainRecord(value) {
+  return !!value && typeof value === 'object' && !Array.isArray(value);
+}
+function isValidCountMap(value, allowedKeys = null) {
+  if (!isPlainRecord(value)) return false;
+  return Object.entries(value).every(([key, n]) =>
+    (!allowedKeys || allowedKeys.has(key)) && Number.isFinite(n) && n >= 0);
+}
+function isValidBooleanMap(value, allowedKeys = null, allowMissing = true) {
+  if (value === undefined || value === null) return allowMissing;
+  if (!isPlainRecord(value)) return false;
+  return Object.entries(value).every(([key, flag]) =>
+    (!allowedKeys || allowedKeys.has(key)) && typeof flag === 'boolean');
+}
+function validateSaveVersion(d) {
+  if (!isPlainRecord(d) || !Number.isInteger(d.v)) return false;
+  const size = saveMapSizeForVersion(d.v);
+  if (!size) return false;
+  const cells = size.w * size.h;
+  if (typeof d.tiles !== 'string' || d.tiles.length !== cells || /[^0-6]/.test(d.tiles)) return false;
+  // v8への移行途中だけ、旧倍率と現行の地形生成値が重なってUint16上限を少し超える場合がある。
+  // 次のv9移行で安全に上限へ丸めるため、この世代だけ一時値を許容する。
+  const oreMax = d.v === 8 ? Number.MAX_SAFE_INTEGER : 65535;
+  if (!Array.isArray(d.ore) || d.ore.length !== cells || d.ore.some(n => !Number.isInteger(n) || n < 0 || n > oreMax)) return false;
+  if (typeof d.explored !== 'string' || d.explored.length !== cells || /[^01]/.test(d.explored)) return false;
+  const itemIds = new Set(Object.keys(ITEMS));
+  const buildingIds = new Set(Object.keys(BUILDINGS));
+  const techIds = new Set(CONFIG.RESEARCH.map(tech => tech.id));
+  const recipeIds = new Set(CONFIG.RECIPES.map(recipe => recipe.out));
+  const pontaUpgradeIds = new Set(CONFIG.PONTA_UPGRADES.map(upgrade => upgrade.id));
+  const researchPackIds = new Set(['researchPack1', 'researchPack2']);
+  if (!isPlainRecord(d.player) || !Number.isFinite(d.player.x) || !Number.isFinite(d.player.y) ||
+      d.player.x < 0 || d.player.y < 0 || d.player.x >= size.w || d.player.y >= size.h ||
+      !Number.isFinite(d.player.battery) || d.player.battery < 0 || !isValidCountMap(d.player.inv || {}, itemIds) ||
+      (d.player.batteryUpgraded !== undefined && typeof d.player.batteryUpgraded !== 'boolean') ||
+      !isValidBooleanMap(d.player.ponTaUpgrades, pontaUpgradeIds)) return false;
+  if ((d.seed !== undefined && !Number.isFinite(d.seed)) ||
+      (d.time !== undefined && (!Number.isFinite(d.time) || d.time < 0)) ||
+      (d.lastSeen !== undefined && (!Number.isFinite(d.lastSeen) || d.lastSeen < 0)) ||
+      (d.cleared !== undefined && typeof d.cleared !== 'boolean') ||
+      (d.beaconCleared !== undefined && typeof d.beaconCleared !== 'boolean') ||
+      !isValidBooleanMap(d.flags) || !isValidBooleanMap(d.research, techIds) ||
+      !isValidBooleanMap(d.discovered, itemIds) || !isValidBooleanMap(d.buildMenuSeen, buildingIds)) return false;
+  if (d.researchProgress !== undefined && d.researchProgress !== null) {
+    if (!isPlainRecord(d.researchProgress)) return false;
+    for (const [techId, progress] of Object.entries(d.researchProgress)) {
+      if (!techIds.has(techId) || !isValidCountMap(progress, researchPackIds)) return false;
+    }
+  }
+  if (!Array.isArray(d.buildings) || d.buildings.length > cells) return false;
+  const occupied = new Set();
+  let baseCount = 0;
+  for (const b of d.buildings) {
+    if (!isPlainRecord(b) || !BUILDINGS[b.type] || !Number.isInteger(b.x) || !Number.isInteger(b.y) ||
+        b.x < 0 || b.y < 0 || b.x >= size.w || b.y >= size.h) return false;
+    const key = b.x + ',' + b.y;
+    if (occupied.has(key)) return false;
+    occupied.add(key);
+    if (b.type === 'base') baseCount++;
+    for (const field of ['buffer', 'input', 'output', 'inv', 'consumed']) {
+      if (b[field] !== undefined && !isValidCountMap(b[field], itemIds)) return false;
+    }
+    if ((b.dir !== undefined && (!Number.isInteger(b.dir) || b.dir < 0 || b.dir >= DIR_VEC.length)) ||
+        (b.item !== undefined && b.item !== null && !itemIds.has(b.item)) ||
+        (b.filterItem !== undefined && b.filterItem !== null && !itemIds.has(b.filterItem)) ||
+        (b.job !== undefined && b.job !== null && !itemIds.has(b.job)) ||
+        (b.recipeOut !== undefined && b.recipeOut !== null && !recipeIds.has(b.recipeOut)) ||
+        (b.currentTech !== undefined && b.currentTech !== null && !techIds.has(b.currentTech)) ||
+        (b.requiresTech !== undefined && b.requiresTech !== null && !techIds.has(b.requiresTech))) return false;
+    for (const field of ['timer', 'progress', 'charge', 'cursor', 'toggle']) {
+      if (b[field] !== undefined && (!Number.isFinite(b[field]) || b[field] < 0)) return false;
+    }
+    for (const field of ['powered', 'active', 'repaired', 'depleted']) {
+      if (b[field] !== undefined && typeof b[field] !== 'boolean') return false;
+    }
+    const has = field => Object.prototype.hasOwnProperty.call(b, field);
+    const requiredMap = field => has(field) && isValidCountMap(b[field], itemIds);
+    const requiredNumber = field => has(field) && Number.isFinite(b[field]) && b[field] >= 0;
+    const requiredDir = () => has('dir') && Number.isInteger(b.dir) && b.dir >= 0 && b.dir < DIR_VEC.length;
+    const requiredNullableItem = field => has(field) && (b[field] === null || itemIds.has(b[field]));
+    switch (b.type) {
+      case 'miner': case 'minerMk2':
+        if (!requiredNumber('timer') || !requiredMap('buffer')) return false;
+        break;
+      case 'furnace':
+        if (!requiredMap('input') || !requiredMap('output') || !requiredNullableItem('job') || !requiredNumber('progress')) return false;
+        break;
+      case 'chest': case 'chestIn':
+        if (!requiredMap('inv')) return false;
+        break;
+      case 'arm': case 'fastArm':
+        if (!requiredDir() || !requiredNumber('timer')) return false;
+        break;
+      case 'filterArm':
+        if (!requiredDir() || !requiredNumber('timer') || !requiredNullableItem('filterItem')) return false;
+        break;
+      case 'belt': case 'fastBelt':
+        if (!requiredDir() || !requiredNullableItem('item') || !requiredNumber('progress')) return false;
+        break;
+      case 'splitter':
+        if (!requiredDir() || !requiredNullableItem('item') || !requiredNumber('progress') || !requiredNumber('toggle')) return false;
+        break;
+      case 'antenna': case 'beacon':
+        if (!has('active') || typeof b.active !== 'boolean') return false;
+        break;
+      case 'assembler':
+        if (!requiredMap('input') || !requiredMap('output') || !requiredNullableItem('job') || !requiredNumber('progress') ||
+            !has('recipeOut') || (b.recipeOut !== null && !recipeIds.has(b.recipeOut))) return false;
+        break;
+      case 'lab':
+        if (!requiredMap('input') || !requiredNullableItem('job') || !requiredNumber('progress') ||
+            !has('currentTech') || (b.currentTech !== null && !techIds.has(b.currentTech))) return false;
+        break;
+      case 'generator': case 'advGenerator':
+        if (!requiredMap('input') || !requiredNullableItem('job') || !requiredNumber('progress') ||
+            !has('active') || typeof b.active !== 'boolean') return false;
+        break;
+      case 'battery':
+        if (!requiredNumber('charge')) return false;
+        break;
+    }
+  }
+  return baseCount === 1;
+}
+function cloneSaveData(d) {
+  return JSON.parse(JSON.stringify(d));
+}
+
 // リセット時にtrueにすると、reload()が発火させるpagehide/visibilitychangeの自動セーブを止める
 // （これが無いと、削除した直後のreloadでオートセーブが復活させてしまいリセットが効かなくなる）
 let suppressSave = false;
-function saveGame() {
-  if (suppressSave) return;
+let lastSaveFailureNotice = 0;
+function saveGame(forceFailureNotice = false) {
+  if (suppressSave) {
+    if (forceFailureNotice) toast('元のセーブデータを保護中です。正しいJSONを読み込むか、リセットしてください', 'danger', 6500, true);
+    return false;
+  }
   const perfStarted = performance.now();
-  G.lastSeen = Date.now();
-  try { localStorage.setItem(SAVE_KEY, JSON.stringify(makeSave())); } catch (e) { /* 容量オーバー等は無視 */ }
-  recordPerfSave(performance.now() - perfStarted);
+  const savedAt = Date.now();
+  const data = makeSave();
+  data.lastSeen = savedAt;
+  try {
+    localStorage.setItem(SAVE_KEY, JSON.stringify(data));
+    G.lastSeen = savedAt;
+    return true;
+  } catch (e) {
+    const now = Date.now();
+    if (forceFailureNotice || now - lastSaveFailureNotice >= 30000) {
+      lastSaveFailureNotice = now;
+      toast('セーブできませんでした。端末の空き容量とブラウザの保存設定を確認してね', 'danger', 6500, true);
+    }
+    return false;
+  } finally {
+    recordPerfSave(performance.now() - perfStarted);
+  }
 }
 // 建設タップ・撤去・パネル操作のたびに毎回同期でJSON.stringify(セーブ全体)+localStorage書き込みを
 // 行っていたため、設備数が多い終盤セーブほどそのタップ自身の処理内でメインスレッドを長く塞ぎ、
@@ -3452,6 +3650,25 @@ function applySave(d) {
   buildMode = null;
   centerCamera(true);
   markDirty();
+}
+function applySaveSafely(d) {
+  const before = makeSave();
+  const transient = {
+    path: G.player.path.slice(), pending: G.player.pending ? cloneSaveData(G.player.pending) : null,
+    camX: cam.x, camY: cam.y, followCam, buildMode,
+  };
+  try {
+    applySave(cloneSaveData(d));
+    return true;
+  } catch (e) {
+    try { applySave(before); } catch (restoreError) { /* 起動直後など復元不能時もfalseを返す */ }
+    G.player.path = transient.path;
+    G.player.pending = transient.pending;
+    cam.x = transient.camX; cam.y = transient.camY;
+    followCam = transient.followCam;
+    buildMode = transient.buildMode;
+    return false;
+  }
 }
 // 既存セーブ向け：石ブロックのクエスト追加より前から遊んでいたプレイヤーが、今さら
 // 「石ブロックを作ろう」を出されないように、既に入手済みとみなせる証拠があればhad_stoneBlockを補完する
@@ -3526,11 +3743,13 @@ function migrateV1(d) {
 function migrateV2(d) {
   const OLD_W = AREA_W * 2 + BORDER_W; // v2時点のマップ幅（第1＋境界＋第2エリア）
   const OLD_H = MAP_H;
-  const newTiles = new Uint8Array(W * H).fill(T_ROCK);
-  const newOre = new Uint16Array(W * H);
-  const newExplored = new Uint8Array(W * H);
+  const V3_W = AREA_W * 3 + BORDER_W * 2; // v3〜v5時点の幅。現行Wを使うと次段の移行で行がずれる
+  const v3idx = (x, y) => y * V3_W + x;
+  const newTiles = new Uint8Array(V3_W * MAP_H).fill(T_ROCK);
+  const newOre = new Uint16Array(V3_W * MAP_H);
+  const newExplored = new Uint8Array(V3_W * MAP_H);
   for (let y = 0; y < OLD_H; y++) for (let x = 0; x < OLD_W; x++) {
-    const oi = y * OLD_W + x, ni = idx(x, y);   // 第1・第2エリアの座標はそのまま（右側に追加するだけ）
+    const oi = y * OLD_W + x, ni = v3idx(x, y);   // 第1・第2エリアの座標はそのまま（右側に追加するだけ）
     newTiles[ni] = +d.tiles[oi];
     newOre[ni] = d.ore[oi];
     newExplored[ni] = +d.explored[oi];
@@ -3538,11 +3757,22 @@ function migrateV2(d) {
   const rng = mulberry32((d.seed || CONFIG.SEED) + 1234);
   const area3 = genAreaLocal(rng, { hasBase: false, copper: true, copperVeins: 14, crystalVeins: 12, ironVeins: 3, stoneVeins: 3, rockClusters: 18 });
   for (let y = 0; y < MAP_H; y++) for (let x = 0; x < AREA_W; x++) {
-    const ni = idx(AREA_W * 2 + BORDER_W * 2 + x, y), li = y * AREA_W + x;
+    const ni = v3idx(AREA_W * 2 + BORDER_W * 2 + x, y), li = y * AREA_W + x;
     newTiles[ni] = area3.tiles[li];
     newOre[ni] = area3.ore[li];
   }
-  carveBorderAndGate(newTiles, newOre);
+  // v3形式に存在する2本の境界だけを、v3幅のstrideで彫る。
+  for (const bd of [
+    { x0: AREA_W, gateX: GATE_X },
+    { x0: AREA_W * 2 + BORDER_W, gateX: GATE2_X },
+  ]) {
+    for (let y = 0; y < MAP_H; y++) for (let x = bd.x0; x < bd.x0 + BORDER_W; x++) {
+      newTiles[v3idx(x, y)] = T_ROCK; newOre[v3idx(x, y)] = 0;
+    }
+    for (let x = bd.x0 - 1; x <= bd.x0 + BORDER_W; x++) {
+      newTiles[v3idx(x, GATE_Y)] = T_PLAIN; newOre[v3idx(x, GATE_Y)] = 0;
+    }
+  }
 
   return {
     v: 3,
@@ -3655,7 +3885,8 @@ function migrateV7(d) {
 function migrateV8(d) {
   const tiles = new Uint8Array(W * H);
   for (let i = 0; i < d.tiles.length; i++) tiles[i] = +d.tiles[i];
-  const ore = new Uint16Array(d.ore);
+  // Uint16Arrayへ直接渡すと65535超の値が0付近へ周回するため、上限で止めて鉱脈残量を守る。
+  const ore = new Uint16Array(d.ore.map(v => Math.min(65535, v)));
   const saved = d.buildings.map(b => ({ x: b.x, y: b.y, t: tiles[idx(b.x, b.y)], o: ore[idx(b.x, b.y)] }));
   sealOuterBorder(tiles, ore);
   for (const s of saved) { tiles[idx(s.x, s.y)] = s.t; ore[idx(s.x, s.y)] = s.o; }
@@ -3676,24 +3907,38 @@ const MIGRATIONS = {
 // dをMIGRATIONSチェーンで最新のSAVE_VERSIONまで引き上げる。到達できなければnullを返す。
 // loadGame（localStorage起動時）と設定画面の手動「読み込む」（JSON貼り付け）の両方から共有する
 function migrateToLatest(d) {
-  let migrated = false, guard = 0;
-  while (d.v < SAVE_VERSION && MIGRATIONS[d.v] && guard++ < 10) {
-    d = MIGRATIONS[d.v](d);
-    migrated = true;
+  try {
+    d = cloneSaveData(d); // migrateV6などが入力を変更しても、貼り付け元や保存済みrawを汚さない
+    if (!validateSaveVersion(d)) return null;
+    let migrated = false, guard = 0;
+    while (d.v < SAVE_VERSION && MIGRATIONS[d.v] && guard++ < 10) {
+      d = MIGRATIONS[d.v](d);
+      if (!validateSaveVersion(d)) return null;
+      migrated = true;
+    }
+    if (d.v !== SAVE_VERSION) return null;
+    return { data: d, migrated };
+  } catch (e) {
+    return null;
   }
-  if (d.v !== SAVE_VERSION) return null;
-  return { data: d, migrated };
 }
 function loadGame() {
   try {
     const raw = localStorage.getItem(SAVE_KEY);
-    if (!raw) return false;
+    if (!raw) return 'missing';
     const result = migrateToLatest(JSON.parse(raw));
-    if (!result) return false;
+    if (!result || !applySaveSafely(result.data)) {
+      suppressSave = true;
+      toast('保存データを安全に読み込めませんでした。元データを保護しています。設定から正しいJSONを読み込むか、リセットしてください', 'danger', 8000, true);
+      return 'invalid';
+    }
     if (result.migrated) toast('セーブデータを新しい形式に更新しました');
-    applySave(result.data);
-    return true;
-  } catch (e) { return false; }
+    return 'loaded';
+  } catch (e) {
+    suppressSave = true;
+    toast('保存データへアクセスできませんでした。ブラウザの保存設定を確認してね', 'danger', 8000, true);
+    return 'invalid';
+  }
 }
 
 // =====================================================================
@@ -3711,7 +3956,7 @@ function snapshotProduction() {
   }
   return totals;
 }
-// 1秒刻みで tickMachines を繰り返し、通常プレイと同じロジックで不在時間分を早送りする
+// 0.5秒刻みで tickMachines を繰り返し、通常プレイと同じロジックで不在時間分を早送りする
 // （枯渇・容量上限などはtick関数自体が処理するため、ここで特別扱いする必要はない）
 //
 // 不在時間（最大 OFFLINE_MAX_HOURS=4時間＝14400秒分）をすべて同期ループで一気に処理すると、
@@ -3722,9 +3967,10 @@ function snapshotProduction() {
 // タイミング（例：建設メニューでの選択操作）の直後にこの重い同期処理がそのまま発生し、
 // 「操作すると1〜2分固まってから自然に復帰する」という症状として現れていた。
 // 1フレーム分の時間予算（PROGRESS_BUDGET_MS）ごとに小分けにして、コミット手段は変えず
-// （STEP=1秒・tickMachinesの呼び出し方は従来通り）フレームの合間に処理を進める
+// （tickMachinesの呼び出し方は通常プレイと共通）フレームの合間に処理を進める
 async function simulateOffline(totalSeconds, onProgress) {
-  const STEP = 1;
+  // 最短の設備処理（研究所0.5秒）を取りこぼさない粒度。1秒では研究が半速になっていた。
+  const STEP = 0.5;
   const PROGRESS_BUDGET_MS = 8; // 1フレーム(16.6ms)のうち計算に使ってよい目安時間
   let remaining = totalSeconds;
   const total = totalSeconds;
@@ -3764,7 +4010,7 @@ function showOfflineReport(seconds, before, after) {
 // バージョンチェック（インストール済みPWAにコード更新が反映されない対策）
 // デプロイのたびにGAME_VERSIONを上げると、開いたままのPWAに更新通知が出せる
 // =====================================================================
-const GAME_VERSION = '4.17.2';
+const GAME_VERSION = '4.18.0';
 async function checkForUpdate() {
   try {
     // cache無視で自身(index.html)を再取得し、埋め込まれたGAME_VERSION表記を比較する
@@ -3796,10 +4042,10 @@ window.addEventListener('pagehide', () => { clearTimeout(saveDebounceTimer); sav
 async function boot() {
   resize();
   checkForUpdate();
-  const hadSave = loadGame();
-  if (!hadSave) {
+  const loadStatus = loadGame();
+  if (loadStatus !== 'loaded') {
     genMap(CONFIG.SEED);
-    toast('未知の惑星に不時着した…。まずは鉱脈をタップして資源を集めよう！');
+    if (loadStatus === 'missing') toast('未知の惑星に不時着した…。まずは鉱脈をタップして資源を集めよう！');
   } else {
     const elapsedSec = Math.min(CONFIG.OFFLINE_MAX_HOURS * 3600, Math.max(0, (Date.now() - (G.lastSeen || Date.now())) / 1000));
     if (elapsedSec > CONFIG.OFFLINE_REPORT_MIN_SEC) {
