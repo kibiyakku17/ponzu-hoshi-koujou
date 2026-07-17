@@ -1487,6 +1487,203 @@ function tickFurnace(b, dt) {
 // =====================================================================
 // 更新ループ
 // =====================================================================
+// iPhone実機では、発熱時にだけ詳細を残したい一方、Inspectがこのページへ接続すると
+// Runtime.evaluate等がタイムアウトしてプロファイラを開始できなかった。
+// そこで通常時は1秒ごとの小さな集計を直近2分だけメモリに持ち、ユーザー操作または
+// 750ms以上の停止から復帰した時だけlocalStorageへレポートを保存する。
+const PERF_REPORT_KEY = 'hoshiFactoryPerfReportV1';
+const PERF_HISTORY_LIMIT = 120;
+const PERF_TIMER_STALL_CAPTURE_MS = 750;
+
+function newPerfBucket(startedAt) {
+  return {
+    startedAt, frames: 0, frameGapMax: 0, gaps50: 0, gaps100: 0,
+    updateMsSum: 0, updateMsMax: 0, renderMsSum: 0, renderMsMax: 0,
+    loopMsSum: 0, loopMsMax: 0, timerDriftMax: 0,
+    saves: 0, saveMsSum: 0, saveMsMax: 0,
+    longTasks: 0, longTaskMsSum: 0, longTaskMsMax: 0,
+  };
+}
+
+const perfRecorder = {
+  startedAt: Date.now(),
+  samples: [],
+  errors: [],
+  current: newPerfBucket(performance.now()),
+  ignoreNextFrameGap: false,
+  captureQueued: false,
+  autoCaptured: false,
+  longTaskSupported: false,
+};
+
+function roundPerf(n) { return Math.round(n * 100) / 100; }
+function perfRuntimeSnapshot(bucket, endedAt) {
+  const durationMs = Math.max(1, endedAt - bucket.startedAt);
+  const heap = performance.memory && performance.memory.usedJSHeapSize;
+  return {
+    at: Date.now(),
+    durationMs: roundPerf(durationMs),
+    frames: bucket.frames,
+    fps: roundPerf(bucket.frames * 1000 / durationMs),
+    frameGapMax: roundPerf(bucket.frameGapMax),
+    gaps50: bucket.gaps50,
+    gaps100: bucket.gaps100,
+    updateAvg: roundPerf(bucket.frames ? bucket.updateMsSum / bucket.frames : 0),
+    updateMax: roundPerf(bucket.updateMsMax),
+    renderAvg: roundPerf(bucket.frames ? bucket.renderMsSum / bucket.frames : 0),
+    renderMax: roundPerf(bucket.renderMsMax),
+    loopAvg: roundPerf(bucket.frames ? bucket.loopMsSum / bucket.frames : 0),
+    loopMax: roundPerf(bucket.loopMsMax),
+    timerDriftMax: roundPerf(bucket.timerDriftMax),
+    saves: bucket.saves,
+    saveAvg: roundPerf(bucket.saves ? bucket.saveMsSum / bucket.saves : 0),
+    saveMax: roundPerf(bucket.saveMsMax),
+    longTasks: bucket.longTasks,
+    longTaskMs: roundPerf(bucket.longTaskMsSum),
+    longTaskMax: roundPerf(bucket.longTaskMsMax),
+    domNodes: document.getElementsByTagName('*').length,
+    buildings: Object.keys(G.buildings).length,
+    effects: fx.length,
+    pathNodes: G.player.path.length,
+    heapBytes: Number.isFinite(heap) ? heap : null,
+  };
+}
+
+function finishPerfBucket(endedAt) {
+  const bucket = perfRecorder.current;
+  perfRecorder.samples.push(perfRuntimeSnapshot(bucket, endedAt));
+  if (perfRecorder.samples.length > PERF_HISTORY_LIMIT) perfRecorder.samples.shift();
+  perfRecorder.current = newPerfBucket(endedAt);
+}
+
+function recordPerfFrame(rawGapMs, updateMs, renderMs, endedAt) {
+  const bucket = perfRecorder.current;
+  bucket.frames++;
+  bucket.updateMsSum += updateMs;
+  bucket.updateMsMax = Math.max(bucket.updateMsMax, updateMs);
+  bucket.renderMsSum += renderMs;
+  bucket.renderMsMax = Math.max(bucket.renderMsMax, renderMs);
+  const loopMs = updateMs + renderMs;
+  bucket.loopMsSum += loopMs;
+  bucket.loopMsMax = Math.max(bucket.loopMsMax, loopMs);
+
+  if (perfRecorder.ignoreNextFrameGap) {
+    perfRecorder.ignoreNextFrameGap = false;
+  } else {
+    bucket.frameGapMax = Math.max(bucket.frameGapMax, rawGapMs);
+    if (rawGapMs >= 50) bucket.gaps50++;
+    if (rawGapMs >= 100) bucket.gaps100++;
+  }
+  if (endedAt - bucket.startedAt >= 1000) finishPerfBucket(endedAt);
+}
+
+function recordPerfSave(ms) {
+  const bucket = perfRecorder.current;
+  bucket.saves++;
+  bucket.saveMsSum += ms;
+  bucket.saveMsMax = Math.max(bucket.saveMsMax, ms);
+}
+
+let perfTimerExpected = performance.now() + 1000;
+setInterval(() => {
+  const now = performance.now();
+  const driftMs = Math.max(0, now - perfTimerExpected);
+  if (!document.hidden) {
+    perfRecorder.current.timerDriftMax = Math.max(perfRecorder.current.timerDriftMax, driftMs);
+    // rAFはブラウザ都合で低頻度化することがあるため、自動保存は描画間隔ではなく
+    // 1秒タイマー自体が750ms以上遅れた時だけ行う（メインスレッド停止からの復帰を示す）。
+    if (driftMs >= PERF_TIMER_STALL_CAPTURE_MS && !perfRecorder.autoCaptured && !perfRecorder.captureQueued) {
+      perfRecorder.captureQueued = true;
+      setTimeout(() => {
+        perfRecorder.captureQueued = false;
+        perfRecorder.autoCaptured = true;
+        capturePerfReport('auto-timer-stall-' + Math.round(driftMs) + 'ms');
+      }, 0);
+    }
+  }
+  perfTimerExpected = now + 1000;
+}, 1000);
+
+document.addEventListener('visibilitychange', () => {
+  perfTimerExpected = performance.now() + 1000;
+  if (!document.hidden) perfRecorder.ignoreNextFrameGap = true;
+});
+
+function keepPerfError(kind, value) {
+  perfRecorder.errors.push({ at: Date.now(), kind, message: String(value || '').slice(0, 800) });
+  if (perfRecorder.errors.length > 20) perfRecorder.errors.shift();
+}
+window.addEventListener('error', e => keepPerfError('error', e.error && e.error.stack || e.message));
+window.addEventListener('unhandledrejection', e => keepPerfError('unhandledrejection', e.reason && e.reason.stack || e.reason));
+
+try {
+  const longTaskObserver = new PerformanceObserver(list => {
+    for (const entry of list.getEntries()) {
+      const bucket = perfRecorder.current;
+      bucket.longTasks++;
+      bucket.longTaskMsSum += entry.duration;
+      bucket.longTaskMsMax = Math.max(bucket.longTaskMsMax, entry.duration);
+    }
+  });
+  longTaskObserver.observe({ type: 'longtask', buffered: true });
+  perfRecorder.longTaskSupported = true;
+} catch (e) { /* iOS Safariで未対応ならrAF間隔とタイマー遅延で計測する */ }
+
+function buildPerfReport(reason) {
+  const now = performance.now();
+  const samples = perfRecorder.samples.concat(perfRuntimeSnapshot(perfRecorder.current, now));
+  const totals = samples.reduce((a, s) => {
+    a.durationMs += s.durationMs; a.frames += s.frames;
+    a.gaps50 += s.gaps50; a.gaps100 += s.gaps100;
+    a.frameGapMax = Math.max(a.frameGapMax, s.frameGapMax);
+    a.loopMax = Math.max(a.loopMax, s.loopMax);
+    a.renderMax = Math.max(a.renderMax, s.renderMax);
+    a.updateMax = Math.max(a.updateMax, s.updateMax);
+    a.timerDriftMax = Math.max(a.timerDriftMax, s.timerDriftMax);
+    a.saves += s.saves; a.saveMax = Math.max(a.saveMax, s.saveMax);
+    a.longTasks += s.longTasks; a.longTaskMax = Math.max(a.longTaskMax, s.longTaskMax);
+    return a;
+  }, { durationMs: 0, frames: 0, gaps50: 0, gaps100: 0, frameGapMax: 0, loopMax: 0, renderMax: 0, updateMax: 0, timerDriftMax: 0, saves: 0, saveMax: 0, longTasks: 0, longTaskMax: 0 });
+  const saveRaw = localStorage.getItem(SAVE_KEY) || '';
+  const resources = performance.getEntriesByType('resource');
+  return JSON.stringify({
+    reportVersion: 1,
+    reason,
+    generatedAt: new Date().toISOString(),
+    gameVersion: typeof GAME_VERSION === 'string' ? GAME_VERSION : 'unknown',
+    page: { standalone: matchMedia('(display-mode: standalone)').matches, hidden: document.hidden, url: location.href },
+    device: { userAgent: navigator.userAgent, screen: `${screen.width}x${screen.height}`, dpr: devicePixelRatio },
+    canvas: { css: `${vw}x${vh}`, pixels: `${canvas.width}x${canvas.height}` },
+    state: { buildings: Object.keys(G.buildings).length, effects: fx.length, pathNodes: G.player.path.length, saveChars: saveRaw.length },
+    resources: { count: resources.length, transferBytes: resources.reduce((n, r) => n + (r.transferSize || 0), 0) },
+    longTaskSupported: perfRecorder.longTaskSupported,
+    summary: {
+      seconds: roundPerf(totals.durationMs / 1000),
+      fps: roundPerf(totals.durationMs ? totals.frames * 1000 / totals.durationMs : 0),
+      frames: totals.frames,
+      gaps50: totals.gaps50,
+      gaps100: totals.gaps100,
+      frameGapMax: roundPerf(totals.frameGapMax),
+      updateMax: roundPerf(totals.updateMax),
+      renderMax: roundPerf(totals.renderMax),
+      loopMax: roundPerf(totals.loopMax),
+      timerDriftMax: roundPerf(totals.timerDriftMax),
+      saves: totals.saves,
+      saveMax: roundPerf(totals.saveMax),
+      longTasks: totals.longTasks,
+      longTaskMax: roundPerf(totals.longTaskMax),
+    },
+    samples,
+    errors: perfRecorder.errors,
+  }, null, 2);
+}
+
+function capturePerfReport(reason) {
+  const report = buildPerfReport(reason);
+  try { localStorage.setItem(PERF_REPORT_KEY, report); } catch (e) { /* セーブ容量を圧迫しないよう失敗は無視 */ }
+  return report;
+}
+
 let dirty = true;
 function markDirty() { dirty = true; }
 const fx = [];   // エフェクト（+1ポップなど）
@@ -2961,6 +3158,8 @@ function openSettings() {
       <button class="btn" id="st-import">読み込む</button></div>
     <textarea id="st-json" placeholder="「書き出す」でここにJSONが出ます。読み込みはここに貼り付けて「読み込む」"></textarea>
     <div class="row" style="margin-top:8px"><div class="grow">手動セーブ</div><button class="btn" id="st-save">セーブ</button></div>
+    <div class="row"><div class="grow">🔥 発熱時の負荷記録<br><span class="cost">直近2分のフレーム・処理時間・タイマー遅延を表示</span></div>
+      <button class="btn" id="st-perf-show">表示</button><button class="btn primary" id="st-perf-copy">📋 負荷をコピー</button></div>
     <div class="row"><div class="grow">最初からやり直す<br><span class="cost">セーブデータを消して新しい星へ</span></div>
       <button class="btn danger" id="st-reset">リセット</button></div>
     <div class="row"><div class="grow">📖 解析ログ<br><span class="cost">星晶石チェーンで見つけた解析ログを見返せる</span></div>
@@ -2995,6 +3194,29 @@ function openSettings() {
       let ok = false;
       try { ok = document.execCommand('copy'); } catch (e2) { ok = false; }
       toast(ok ? '📋 コピーした！' : '自動コピーできなかった…全選択したので手動でコピーしてね', ok ? undefined : 'warn');
+    }
+  };
+  const showPerfReport = reason => {
+    const report = capturePerfReport(reason);
+    panelEl.querySelector('#st-json').value = report;
+    return report;
+  };
+  panelEl.querySelector('#st-perf-show').onclick = () => {
+    showPerfReport('manual-show');
+    toast('🔥 発熱時の負荷記録を表示した！');
+  };
+  panelEl.querySelector('#st-perf-copy').onclick = async () => {
+    const ta = panelEl.querySelector('#st-json');
+    ta.value = showPerfReport('manual-copy');
+    try {
+      if (!navigator.clipboard || !navigator.clipboard.writeText) throw new Error('no clipboard api');
+      await navigator.clipboard.writeText(ta.value);
+      toast('📋 負荷記録をコピーした！');
+    } catch (e) {
+      ta.focus(); ta.select(); ta.setSelectionRange(0, ta.value.length);
+      let ok = false;
+      try { ok = document.execCommand('copy'); } catch (e2) { ok = false; }
+      toast(ok ? '📋 負荷記録をコピーした！' : '自動コピーできなかった…全選択したので手動でコピーしてね', ok ? undefined : 'warn');
     }
   };
   panelEl.querySelector('#st-import').onclick = () => {
@@ -3164,8 +3386,10 @@ function makeSave() {
 let suppressSave = false;
 function saveGame() {
   if (suppressSave) return;
+  const perfStarted = performance.now();
   G.lastSeen = Date.now();
   try { localStorage.setItem(SAVE_KEY, JSON.stringify(makeSave())); } catch (e) { /* 容量オーバー等は無視 */ }
+  recordPerfSave(performance.now() - perfStarted);
 }
 // 建設タップ・撤去・パネル操作のたびに毎回同期でJSON.stringify(セーブ全体)+localStorage書き込みを
 // 行っていたため、設備数が多い終盤セーブほどそのタップ自身の処理内でメインスレッドを長く塞ぎ、
@@ -3525,7 +3749,7 @@ function showOfflineReport(seconds, before, after) {
 // バージョンチェック（インストール済みPWAにコード更新が反映されない対策）
 // デプロイのたびにGAME_VERSIONを上げると、開いたままのPWAに更新通知が出せる
 // =====================================================================
-const GAME_VERSION = '4.17.0';
+const GAME_VERSION = '4.17.1';
 async function checkForUpdate() {
   try {
     // cache無視で自身(index.html)を再取得し、埋め込まれたGAME_VERSION表記を比較する
@@ -3581,10 +3805,15 @@ async function boot() {
 
   let last = performance.now();
   function frame(now) {
-    const dt = Math.min(0.1, (now - last) / 1000);
+    const rawGapMs = now - last;
+    const dt = Math.min(0.1, rawGapMs / 1000);
     last = now;
+    const frameStarted = performance.now();
     update(dt);
+    const updateEnded = performance.now();
     render();
+    const frameEnded = performance.now();
+    recordPerfFrame(rawGapMs, updateEnded - frameStarted, frameEnded - updateEnded, frameEnded);
     requestAnimationFrame(frame);
   }
   requestAnimationFrame(frame);
