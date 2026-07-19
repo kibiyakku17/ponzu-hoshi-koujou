@@ -41,13 +41,19 @@
   #battery-fill{height:100%;width:100%;background:var(--accent);transition:width .2s;}
   #battery-txt{font-size:11px;color:var(--sub);min-width:56px;}
   #charging{font-size:11px;color:var(--accent);display:none;}
+  #power-hud{pointer-events:auto;min-width:78px;height:44px;display:flex;align-items:center;justify-content:center;
+    gap:4px;padding:0 9px;background:rgba(19,26,46,.88);border:1px solid var(--line);border-radius:10px;
+    color:var(--accent);font-size:12px;font-weight:700;white-space:nowrap;}
+  #power-hud.warn{color:var(--warn);border-color:var(--warn);}
+  #power-hud.danger{color:var(--danger);border-color:var(--danger);}
+  #power-hud:active{background:var(--panel2);}
   .hud-btn{pointer-events:auto;background:rgba(19,26,46,.88);border:1px solid var(--line);
     color:var(--text);border-radius:10px;width:40px;height:40px;font-size:18px;
     display:flex;align-items:center;justify-content:center;flex:0 0 auto;}
   .hud-btn:active{background:var(--panel2);}
   #hud-top .spacer{flex:1;}
 
-  #quest{position:fixed;top:calc(env(safe-area-inset-top,0) + 58px);left:10px;right:10px;
+  #quest{position:fixed;top:calc(env(safe-area-inset-top,0) + 64px);left:10px;right:10px;
     background:rgba(19,26,46,.82);border:1px solid var(--line);border-radius:10px;
     padding:7px 11px;font-size:12px;color:var(--text);z-index:9;pointer-events:none;line-height:1.5;}
   #quest b{color:var(--accent);font-weight:600;}
@@ -124,6 +130,14 @@
   #clear-canvas{width:min(88vw,420px);border-radius:12px;border:1px solid var(--line);}
   #clear-overlay h1{font-size:22px;color:var(--accent);text-align:center;}
   #clear-overlay p{font-size:13px;color:var(--text);text-align:center;line-height:1.8;max-width:340px;}
+  @media (max-width:430px){
+    #hud-top{gap:6px;padding-left:6px;padding-right:6px;}
+    #battery-wrap{gap:4px;padding:6px;}
+    #battery-bar{width:58px;}
+    #battery-txt{min-width:36px;}
+    #charging{display:none!important;}
+    #power-hud{min-width:68px;padding:0 6px;}
+  }
 </style>
 </head>
 <body>
@@ -136,6 +150,7 @@
     <span id="battery-txt">100%</span>
     <span id="charging">⚡充電中</span>
   </div>
+  <button id="power-hud" type="button" aria-label="電力状況を開く"><span>⚡</span><span id="power-hud-text">15/0</span></button>
   <div class="spacer"></div>
   <button class="hud-btn" id="btn-center" title="ロボへ">📍</button>
   <button class="hud-btn" id="btn-settings" title="設定">⚙️</button>
@@ -174,16 +189,15 @@
 
 <div id="clear-overlay">
   <canvas id="clear-canvas" width="420" height="320"></canvas>
-  <h1 id="clear-title">救難信号 送信成功！</h1>
-  <p id="clear-msg">アンテナが起動し、信号は星の海を越えていく。<br>
-  探査ロボ・ぽん太はこの星で、迎えの船を待ちながら<br>工場をひらきつづけるのだった……。<br><br>― Phase 1 クリア！おめでとう！ ―</p>
+  <h1 id="clear-title">第一通信 確立</h1>
+  <p id="clear-msg">通信アンテナが起動し、短距離の救難信号を送信した。</p>
   <button class="btn primary" id="btn-clear-continue" style="padding:12px 30px;font-size:15px;">つづける</button>
 </div>
 
 <script>
 'use strict';
 /* =====================================================================
- * ひらけ！ほしこうじょう Phase 1 (MVP)  - ぽんず工房
+ * ひらけ！ほしこうじょう  - ぽんず工房
  * 単一HTML / Canvas / localStorageセーブ
  * =====================================================================
  * ▼▼▼ 調整パラメータ（バランス調整はここをいじる） ▼▼▼ */
@@ -257,6 +271,7 @@ const CONFIG = {
   BATTERY_CHARGE_RATE: 20,    // 蓄電池の充電速度（/秒。供給が需要を上回る分から充電）
   BATTERY_DISCHARGE_RATE: 20, // 蓄電池の放電速度（/秒。供給が需要を下回る分をここから補う）
   BATTERY_RADIUS: 15,         // 蓄電池の電力網への接続半径（タイル）。小型発電機と同格
+  FINAL_TRANSMISSION_RESERVE: 20, // 救難通信の最大出力送信に必要な電力網の余剰電力
   // 設備の設置コスト（gateは修理コスト）
   COSTS: {
     furnace:  { stone: 5 },
@@ -456,11 +471,11 @@ const BUILDINGS = {
   furnace:   { name: '精錬炉', icon: '🔥', short: '鉱石を鉄板・石ブロックへ加工', desc: '鉄鉱石→鉄板、石→石ブロックを自動で加工する。' },
   chest:     { name: '保管箱', icon: '📦', short: 'アイテムをしまえる箱', desc: 'アイテムをしまえる箱。採掘機の隣に置くと自動で溜まる。' },
   workbench: { name: '作業台', icon: '🔧', short: '手動クラフト・各種強化の拠点', desc: '手動クラフト用。鉄板から部品を作れる。' },
-  antenna:   { name: '通信アンテナ', icon: '📡', short: '起動して救難信号を送る', desc: '拠点の近くに設置して起動すれば救難信号を送れる！' },
+  antenna:   { name: '通信アンテナ', icon: '📡', short: '短距離の救難信号を送る', desc: '拠点の近くに設置して起動すると、最初の救難信号を送れる。救難通信完成への第一歩。' },
   arm:       { name: 'アーム', icon: '🦾', short: '隣の設備/ベルト間で受け渡し', desc: '後ろの設備/ベルトから受け取り、前の設備/ベルトへ渡す（数秒に1個）。設置後タップで90度回転。', upgradesTo: 'fastArm' },
   belt:      { name: 'ベルト', icon: '➡️', short: 'アイテムを進行方向へ運ぶ', desc: '乗ったアイテムを進行方向へ運ぶ。設備への出し入れはアーム経由。設置後タップで90度回転。', upgradesTo: 'fastBelt' },
   gate:      { name: '壊れたゲート', icon: '🚧' },
-  beacon:    { name: '誘導ビーコン', icon: '🛰️', short: '起動して迎えの船に位置を知らせる', desc: 'アンテナ起動後の最終目標。起動すると迎えの船に位置を知らせる。' },
+  beacon:    { name: '誘導ビーコン', icon: '🛰️', short: '位置を知らせ、救難通信を完成させる', desc: 'アンテナ起動後に位置と誘導信号を確立する。上位発電機と十分な余剰電力があれば、最大出力で救難通信を完成できる。' },
   assembler: { name: '組立機', icon: '⚙️', short: 'レシピを選んで自動クラフト', desc: 'レシピを選んで自動クラフト。材料は隣接/アーム経由で搬入、完成品はアームで搬出。' },
   lab:       { name: '研究所', icon: '🔬', short: '研究パックを消費して研究を進行', desc: '研究パックを消費して研究を進める。研究メニューから対象を選ぶ。' },
   splitter:  { name: '分配器', icon: '↗️', short: 'ベルト上で2方向に交互振り分け', desc: 'ベルト上で使う簡易スプリッタ。受け取ったアイテムを2方向へ交互に振り分ける。設置後タップで90度回転。' },
@@ -529,6 +544,7 @@ const G = {
   buildMenuSeen: {},                 // 建設メニューで一度でも表示したことがある設備 id -> true（NEWバッジの判定用。Phase4.15①）
   cleared: false,
   beaconCleared: false,
+  rescueCompleted: false,
   lastSeen: Date.now(),
   time: 0,
 };
@@ -798,6 +814,7 @@ function genMap(seed) {
   G.player.x = G.base.x; G.player.y = G.base.y + 1;
   G.player.batteryUpgraded = false;
   G.beaconCleared = false;
+  G.rescueCompleted = false;
 }
 
 // =====================================================================
@@ -1218,12 +1235,19 @@ function rebuildPowerTopology() {
 // 拠点電源（base）が常時ネットワークの一員になっているため、恩恵期間のような特別扱いは不要
 function tickPower(all, dt) {
   if (powerTopologyDirty) rebuildPowerTopology();
-  for (const net of powerNetworks) { net.supply = net.nodes.reduce((s, n) => s + powerNodeOutput(n), 0); net.demand = 0; }
+  for (const net of powerNetworks) {
+    net.supply = net.nodes.reduce((s, n) => s + powerNodeOutput(n), 0);
+    net.demand = 0;
+    net.consumers = [];
+  }
   const assigned = [];
   for (const b of all) {
     if (CONFIG.POWER_USE[b.type] === undefined) continue;
-    const net = powerNetworks.find(cand => cand.nodes.some(n => Math.hypot(n.x - b.x, n.y - b.y) <= powerNodeRadius(n)));
-    if (net) net.demand += CONFIG.POWER_USE[b.type];
+    const net = powerNetworkForBuilding(b);
+    if (net) {
+      net.demand += CONFIG.POWER_USE[b.type];
+      net.consumers.push(b);
+    }
     assigned.push([b, net]);
   }
   // 蓄電池の充放電（Phase4.11①）：供給が需要を上回るネットワークは余剰分を蓄電池へ充電し、
@@ -1270,6 +1294,84 @@ function tickPower(all, dt) {
     b.powered = newPowered;
   }
   if (newlyUnpowered) sfxPowerOut();
+}
+
+function formatPower(n) {
+  const rounded = Math.round((Number(n) || 0) * 10) / 10;
+  return Number.isInteger(rounded) ? String(rounded) : rounded.toFixed(1);
+}
+function powerAreaForX(x) {
+  if (x < AREA_W) return 1;
+  if (x < AREA_W * 2 + BORDER_W) return 2;
+  if (x < AREA_W * 3 + BORDER_W * 2) return 3;
+  return 4;
+}
+function powerNetworkSnapshots() {
+  const visible = powerNetworks.filter(net => net.supply > 0 || net.demand > 0 ||
+    net.nodes.some(n => ['base', 'generator', 'advGenerator', 'battery'].includes(n.type)));
+  const snapshots = visible.map((net, index) => {
+    const batteries = net.nodes.filter(n => n.type === 'battery');
+    const positions = [...net.nodes, ...(net.consumers || [])];
+    const avgX = positions.length ? positions.reduce((sum, b) => sum + b.x, 0) / positions.length : 0;
+    const area = powerAreaForX(avgX);
+    const supply = net.supply || 0;
+    const demand = net.demand || 0;
+    const effectiveSupply = net.effectiveSupply ?? supply;
+    return {
+      net,
+      index,
+      area,
+      supply,
+      demand,
+      effectiveSupply,
+      reserve: supply - demand,
+      outage: effectiveSupply + 1e-9 < demand,
+      batterySupporting: supply + 1e-9 < demand && effectiveSupply + 1e-9 >= demand,
+      smallGenerators: net.nodes.filter(n => n.type === 'generator').length,
+      advancedGenerators: net.nodes.filter(n => n.type === 'advGenerator').length,
+      activeAdvancedGenerators: net.nodes.filter(n => n.type === 'advGenerator' && n.active && n.job === 'arcCore').length,
+      batteries: batteries.length,
+      batteryPercent: batteries.length
+        ? Math.round(batteries.reduce((sum, b) => sum + (b.charge || 0), 0) / (batteries.length * CONFIG.BATTERY_CAPACITY) * 100)
+        : null,
+    };
+  });
+  const areaTotals = new Map();
+  for (const s of snapshots) if (!s.net.nodes.some(n => n.type === 'base')) areaTotals.set(s.area, (areaTotals.get(s.area) || 0) + 1);
+  const areaSeen = new Map();
+  for (const s of snapshots) {
+    if (s.net.nodes.some(n => n.type === 'base')) s.name = '拠点電力網';
+    else {
+      const number = (areaSeen.get(s.area) || 0) + 1;
+      areaSeen.set(s.area, number);
+      s.name = `第${s.area}エリア電力網${areaTotals.get(s.area) > 1 ? ` ${number}` : ''}`;
+    }
+  }
+  return snapshots;
+}
+function powerNetworkForBuilding(b) {
+  return powerNetworks.find(net => net.nodes.some(n => Math.hypot(n.x - b.x, n.y - b.y) <= powerNodeRadius(n))) || null;
+}
+function rescueTransmissionStatus(beacon) {
+  const net = powerNetworkForBuilding(beacon);
+  const snapshot = powerNetworkSnapshots().find(s => s.net === net) || null;
+  const hasAdvancedGenerator = !!(snapshot && snapshot.activeAdvancedGenerators > 0);
+  const powered = !!(snapshot && !snapshot.outage);
+  const enoughReserve = !!(snapshot && snapshot.reserve + 1e-9 >= CONFIG.FINAL_TRANSMISSION_RESERVE);
+  return {
+    net,
+    snapshot,
+    hasAdvancedGenerator,
+    powered,
+    enoughReserve,
+    beaconActive: !!beacon.active,
+    ready: !!(G.beaconCleared && beacon.active && hasAdvancedGenerator && powered && enoughReserve),
+  };
+}
+function rescuePowerLine(snapshot) {
+  return snapshot
+    ? `供給 ${formatPower(snapshot.supply)} / 需要 ${formatPower(snapshot.demand)} / ${snapshot.reserve >= 0 ? `余裕 +${formatPower(snapshot.reserve)}` : `不足 ${formatPower(snapshot.reserve)}`}`
+    : '電力網に接続されていない';
 }
 
 // 研究所：選択中の研究のコストに従い、パックを1個ずつ消費して進行する
@@ -1809,6 +1911,7 @@ function update(dt) {
   updateFlags();
   if (dirty) { syncDiscovered(); renderInvBar(); renderQuest(); refreshOpenPanel(); dirty = false; }
   renderBattery();
+  renderPowerHud();
 
   // --- オートセーブ ---
   autosaveT += dt;
@@ -1847,7 +1950,7 @@ const QUESTS = [
   { id: 'part',     check: () => everHad('part'), text: '作業台で <b>部品</b> を作ろう（鉄板×2）' },
   { id: 'miner',    check: () => hasBuilding('miner'), text: '<b>採掘機</b> を鉱脈の上に置いて自動化しよう（鉄板×4＋石ブロック×2）' },
   { id: 'antenna',  check: () => hasBuilding('antenna'), text: '<b>通信アンテナ</b> を拠点の近くに建てよう（部品×5＋石ブロック×5＋結晶×3）' },
-  { id: 'activate', check: () => G.cleared, text: 'アンテナをタップして <b>起動</b> しよう！' },
+  { id: 'activate', check: () => G.cleared, text: 'アンテナをタップして起動し、<b>第一通信</b>を確立しよう！' },
 ];
 // アンテナ起動後の継続目標
 const QUESTS_POST = [
@@ -1856,7 +1959,7 @@ const QUESTS_POST = [
   { id: 'copper',  check: () => everHad('copperWire'), text: '第2エリアで<b>銅鉱石</b>を集めて精錬炉で<b>銅線</b>を作ろう' },
   { id: 'circuit', check: () => everHad('circuit'), text: '作業台で<b>回路</b>を作ろう（銅線×2＋鉄板×1）' },
   { id: 'battery', check: () => !!G.player.batteryUpgraded, text: '作業台で<b>バッテリー拡張</b>をしよう（回路×3＋結晶×2）' },
-  { id: 'beacon',  check: () => G.beaconCleared, text: '<b>誘導ビーコン</b>を建てて起動しよう（回路×5＋部品×10＋結晶×5）' },
+  { id: 'beacon',  check: () => G.beaconCleared, text: '<b>誘導ビーコン</b>を建てて起動し、位置と誘導信号を確立しよう（回路×5＋部品×10＋結晶×5）' },
   { id: 'gate3research', check: () => !!G.research.gate3Blueprint,
     text: '研究所で<b>「第4エリアのゲート図面」</b>を研究しよう（さらに先へ進むにはこれが必要）' },
   { id: 'gate3',   check: () => !!G.flags['q_gate3'],
@@ -1865,6 +1968,8 @@ const QUESTS_POST = [
     text: '第4エリアで<b>星晶石</b>を集め、精錬炉で高純度星晶石、組立機で<b>星晶コア</b>を作ろう' },
   { id: 'advGenerator', check: () => hasBuilding('advGenerator'),
     text: '星晶コアから<b>アークコア</b>を作り、<b>上位発電機</b>を建てて電力不足を解消しよう' },
+  { id: 'rescue', check: () => G.rescueCompleted,
+    text: '誘導ビーコンを上位発電機と同じ電力網につなぎ、余剰電力20以上で<b>最大出力の救難通信</b>を送ろう' },
 ];
 function hasBuilding(type) { return Object.values(G.buildings).some(b => b.type === type); }
 function buildingOfType(type) { return Object.values(G.buildings).find(b => b.type === type); }
@@ -2644,6 +2749,7 @@ document.getElementById('btn-zoomin').onclick = () => { tilePx = Math.min(64, Ma
 document.getElementById('btn-zoomout').onclick = () => { tilePx = Math.max(16, Math.round(tilePx / 1.25)); };
 document.getElementById('btn-center').onclick = () => { followCam = true; centerCamera(true); };
 document.getElementById('btn-settings').onclick = () => openSettings();
+document.getElementById('power-hud').onclick = () => openPowerPanel();
 document.getElementById('btn-build').onclick = () => openBuildMenu();
 document.getElementById('btn-erase').onclick = () => {
   eraseMode = true; buildMode = null; placementHistory = []; updateBuildModeUI();
@@ -2687,6 +2793,32 @@ function renderBattery() {
   fill.style.background = pct <= 25 ? 'var(--danger)' : pct <= 50 ? 'var(--warn)' : 'var(--accent)';
   document.getElementById('battery-txt').textContent = pct + '%';
 }
+let nextPowerUiRefresh = 0;
+let lastPowerHudState = '';
+function renderPowerHud(force) {
+  if (!force && G.time < nextPowerUiRefresh) return;
+  nextPowerUiRefresh = G.time + 0.25;
+  const snapshots = powerNetworkSnapshots();
+  const totalSupply = snapshots.reduce((sum, s) => sum + s.supply, 0);
+  const totalDemand = snapshots.reduce((sum, s) => sum + s.demand, 0);
+  const outages = snapshots.filter(s => s.outage).length;
+  const batterySupporting = snapshots.some(s => s.batterySupporting);
+  const lowReserve = snapshots.some(s => !s.outage && s.reserve < CONFIG.FINAL_TRANSMISSION_RESERVE);
+  const text = outages ? `⚠️${outages}網不足` : `⚡${formatPower(totalSupply)}/${formatPower(totalDemand)}`;
+  const tone = outages ? 'danger' : (batterySupporting || lowReserve ? 'warn' : 'stable');
+  const state = `${text}|${tone}`;
+  if (state !== lastPowerHudState) {
+    const button = document.getElementById('power-hud');
+    document.getElementById('power-hud-text').textContent = text.replace(/^⚡/, '');
+    button.className = tone === 'stable' ? '' : tone;
+    button.setAttribute('aria-label', outages
+      ? `電力状況。${outages}つの電力網が不足。詳細を開く`
+      : `電力状況。供給${formatPower(totalSupply)}、需要${formatPower(totalDemand)}。詳細を開く`);
+    lastPowerHudState = state;
+  }
+  if (openedPanel?.kind === 'power') refreshPowerPanelValues();
+  else if (openedPanel?.kind === 'building' && openedPanel.b.type === 'beacon') refreshBeaconPowerStatus(openedPanel.b);
+}
 function renderInvBar() {
   const el = document.getElementById('inv-bar');
   const inv = G.player.inv;
@@ -2715,13 +2847,66 @@ function closePanel() {
   panelBack.style.display = 'none';
   openedPanel = null;
 }
+function powerSnapshotDisplay(s) {
+  const state = s.outage ? '⚠️ 停電中'
+    : s.batterySupporting ? '🔋 蓄電池で補給中'
+    : s.reserve < CONFIG.FINAL_TRANSMISSION_RESERVE ? '△ 余裕わずか'
+    : '● 安定';
+  const stateColor = s.outage ? 'var(--danger)'
+    : (s.batterySupporting || s.reserve < CONFIG.FINAL_TRANSMISSION_RESERVE ? 'var(--warn)' : 'var(--accent)');
+  const reserve = s.reserve >= 0 ? `余裕 +${formatPower(s.reserve)}` : `不足 ${formatPower(s.reserve)}`;
+  const generators = `小型${s.smallGenerators}・上位${s.advancedGenerators}`;
+  const battery = s.batteries ? `・蓄電池${s.batteries}（${s.batteryPercent}%）` : '';
+  return { state, stateColor, reserve, generators, battery };
+}
+function openPowerPanel(keep) {
+  const snapshots = powerNetworkSnapshots();
+  const totalSupply = snapshots.reduce((sum, s) => sum + s.supply, 0);
+  const totalDemand = snapshots.reduce((sum, s) => sum + s.demand, 0);
+  const rows = snapshots.length ? snapshots.map(s => {
+    const d = powerSnapshotDisplay(s);
+    return `<h3>${s.name}</h3>
+      <div class="row" data-power-net="${s.index}"><div class="grow"><b data-power-values>供給 ${formatPower(s.supply)} / 需要 ${formatPower(s.demand)}</b><br>
+      <span class="cost" data-power-meta>${d.reserve}・発電機 ${d.generators}${d.battery}</span></div>
+      <b data-power-state style="color:${d.stateColor}">${d.state}</b></div>`;
+  }).join('') : '<div class="row"><div class="grow">表示できる電力網がありません</div></div>';
+  showPanel(`<h2>⚡ 電力状況<button class="close-x">✕</button></h2>
+    <div class="row"><div class="grow">全体<br><span class="cost">電力網が複数ある時は、下の網ごとの不足を確認してください。</span></div>
+    <b id="power-total-values">供給 ${formatPower(totalSupply)} / 需要 ${formatPower(totalDemand)}</b></div>${rows}
+    <div class="row"><span class="cost">供給は発電量、需要は接続中の設備が必要とする電力です。余裕が0を下回ると設備が止まり、蓄電池があれば一時的に不足を補います。</span></div>`);
+  openedPanel = { kind: 'power', structure: snapshots.map(s => s.name).join('|') };
+  if (!keep) renderPowerHud(true);
+}
+function refreshPowerPanelValues() {
+  if (openedPanel?.kind !== 'power') return;
+  const snapshots = powerNetworkSnapshots();
+  const structure = snapshots.map(s => s.name).join('|');
+  if (structure !== openedPanel.structure) { openPowerPanel(true); return; }
+  const totalSupply = snapshots.reduce((sum, s) => sum + s.supply, 0);
+  const totalDemand = snapshots.reduce((sum, s) => sum + s.demand, 0);
+  const total = panelEl.querySelector('#power-total-values');
+  if (total) total.textContent = `供給 ${formatPower(totalSupply)} / 需要 ${formatPower(totalDemand)}`;
+  for (const s of snapshots) {
+    const row = panelEl.querySelector(`[data-power-net="${s.index}"]`);
+    if (!row) continue;
+    const d = powerSnapshotDisplay(s);
+    const values = row.querySelector('[data-power-values]');
+    const meta = row.querySelector('[data-power-meta]');
+    const state = row.querySelector('[data-power-state]');
+    if (values) values.textContent = `供給 ${formatPower(s.supply)} / 需要 ${formatPower(s.demand)}`;
+    if (meta) meta.textContent = `${d.reserve}・発電機 ${d.generators}${d.battery}`;
+    if (state) { state.textContent = d.state; state.style.color = d.stateColor; }
+  }
+}
 function refreshOpenPanel() {
   if (!openedPanel) return;
   if (openedPanel.kind === 'building') {
     const b = openedPanel.b;
     if (!G.buildings[bkey(b.x, b.y)]) { closePanel(); return; }
-    openBuilding(b, true);
+    if (b.type === 'beacon') refreshBeaconPowerStatus(b);
+    else openBuilding(b, true);
   } else if (openedPanel.kind === 'build') openBuildMenu(true);
+  else if (openedPanel.kind === 'power') refreshPowerPanelValues();
 }
 
 // --- 建設メニュー ---
@@ -3021,10 +3206,27 @@ function openBuilding(b, keep) {
       <div style="margin-top:12px"><button class="btn primary" id="pb-repair" style="width:100%;padding:14px;font-size:15px;" ${canAfford(cost) ? '' : 'disabled'}>🔧 修理する</button></div>` : ''}`;
   }
   else if (b.type === 'beacon') {
-    html = `<h2>🛰️ 誘導ビーコン<button class="close-x">✕</button></h2>
-      <div class="row"><div class="grow">${b.active ? '起動中。迎えの船に位置を知らせている…' : '準備完了！起動すれば迎えの船に位置を知らせられる。'}</div></div>
-      ${b.active ? '' : '<div style="margin-top:12px"><button class="btn primary" id="pb-beacon-activate" style="width:100%;padding:14px;font-size:15px;">🚀 ビーコンを起動する</button></div>'}` +
-      (b.active ? '' : removeBtn);
+    const rescue = rescueTransmissionStatus(b);
+    const power = rescue.snapshot;
+    const powerLine = rescuePowerLine(power);
+    let body;
+    if (!b.active) {
+      body = `<div class="row"><div class="grow">位置と誘導信号を確立する準備ができている。</div></div>
+        <div style="margin-top:12px"><button class="btn primary" id="pb-beacon-activate" style="width:100%;min-height:44px;padding:14px;font-size:15px;">🛰️ 誘導ビーコンを起動する</button></div>${removeBtn}`;
+    } else if (G.rescueCompleted) {
+      body = `<div class="row"><div class="grow"><b style="color:var(--accent)">✅ 救難通信は確立済み</b><br>
+        <span class="cost">遠い航路から応答を受信した。工場と星の解析はこのまま続けられる。</span></div></div>`;
+    } else {
+      const advMark = rescue.hasAdvancedGenerator ? '✅' : '⬜';
+      const reserveMark = rescue.enoughReserve && rescue.powered ? '✅' : '⬜';
+      body = `<div class="row"><div class="grow"><b style="color:var(--accent)">✅ 誘導信号は確立済み</b><br>
+          <span class="cost">次は上位発電機の出力を使って、救難通信を完成させる。</span></div></div>
+        <h3>最大出力送信の条件</h3>
+        <div class="row"><div class="grow"><span id="beacon-adv-mark">${advMark}</span> 同じ電力網に稼働中の上位発電機</div></div>
+        <div class="row"><div class="grow"><span id="beacon-reserve-mark">${reserveMark}</span> 余剰電力 ${CONFIG.FINAL_TRANSMISSION_RESERVE}以上<br><span class="cost" id="beacon-power-line">現在：${powerLine}</span></div></div>
+        <div style="margin-top:12px"><button class="btn primary" id="pb-rescue-transmit" style="width:100%;min-height:44px;padding:14px;font-size:15px;" ${rescue.ready ? '' : 'disabled'}>🚀 最大出力で救難通信を送る</button></div>`;
+    }
+    html = `<h2>🛰️ 誘導ビーコン<button class="close-x">✕</button></h2>${body}`;
   }
   else if (b.type === 'generator' || b.type === 'advGenerator') {
     const adv = b.type === 'advGenerator';
@@ -3184,6 +3386,20 @@ function openBuilding(b, keep) {
     closePanel(); markDirty(); scheduleSave();
   });
   panelEl.querySelector('#pb-beacon-activate')?.addEventListener('click', () => activateBeacon(b));
+  panelEl.querySelector('#pb-rescue-transmit')?.addEventListener('click', () => completeRescueTransmission(b));
+}
+
+function refreshBeaconPowerStatus(b) {
+  if (openedPanel?.kind !== 'building' || openedPanel.b !== b || b.type !== 'beacon' || !b.active || G.rescueCompleted) return;
+  const rescue = rescueTransmissionStatus(b);
+  const advMark = panelEl.querySelector('#beacon-adv-mark');
+  const reserveMark = panelEl.querySelector('#beacon-reserve-mark');
+  const powerLine = panelEl.querySelector('#beacon-power-line');
+  const transmit = panelEl.querySelector('#pb-rescue-transmit');
+  if (advMark) advMark.textContent = rescue.hasAdvancedGenerator ? '✅' : '⬜';
+  if (reserveMark) reserveMark.textContent = rescue.enoughReserve && rescue.powered ? '✅' : '⬜';
+  if (powerLine) powerLine.textContent = `現在：${rescuePowerLine(rescue.snapshot)}`;
+  if (transmit) transmit.disabled = !rescue.ready;
 }
 
 // --- 設定 ---
@@ -3208,7 +3424,8 @@ function openSettings() {
       ・タップで移動／鉱脈タップで採掘（近くにいるとき）<br>
       ・ドラッグでスクロール、＋－でズーム、📍でロボの位置へ<br>
       ・バッテリーに注意！拠点の近くで自動充電<br>
-      ・🔨建設から設備を置いて、アンテナ起動でクリア！</span></div>`);
+      ・⚡上部の電力表示をタップすると、電力網ごとの供給・需要・余裕を確認できます<br>
+      ・アンテナと誘導ビーコンを起動し、最後は上位発電機の電力で救難通信を完成させよう</span></div>`);
   openedPanel = null;
   panelEl.querySelector('#st-sfx-toggle').onclick = () => {
     setSfxEnabled(!sfxEnabled);
@@ -3321,11 +3538,10 @@ function activateAntenna(b) {
   closePanel();
   saveGame();
   sfxBigAchieve();
-  document.getElementById('clear-title').textContent = '救難信号 送信成功！';
-  document.getElementById('clear-msg').innerHTML = 'アンテナが起動し、信号は星の海を越えていく。<br>' +
-    '探査ロボ・ぽん太はこの星で、迎えの船を待ちながら<br>工場をひらきつづけるのだった……。<br><br>― Phase 1 クリア！おめでとう！ ―';
-  drawClearArt('antenna');
-  document.getElementById('clear-overlay').style.display = 'flex';
+  showClearMoment('第一通信 確立',
+    '通信アンテナが起動し、短距離の救難信号を送信した。<br>' +
+    '応答はまだない。より遠くへ届けるため、工場と通信設備を育てよう。',
+    'antenna', '探索を続ける');
 }
 function activateBeacon(b) {
   b.active = true;
@@ -3333,12 +3549,48 @@ function activateBeacon(b) {
   closePanel();
   saveGame();
   sfxBigAchieve();
-  document.getElementById('clear-title').textContent = '誘導ビーコン 起動成功！';
-  document.getElementById('clear-msg').innerHTML = 'ビーコンの光が夜空を貫き、迎えの船へ道しるべを示す。<br>' +
-    '探査ロボ・ぽん太の物語は、まだまだ続いていく……。<br><br>― Phase 2 クリア！おめでとう！ ―';
-  drawClearArt('beacon');
-  document.getElementById('clear-overlay').style.display = 'flex';
+  showClearMoment('誘導信号 確立',
+    '誘導ビーコンが起動し、この星の位置を示す信号が夜空を貫いた。<br>' +
+    'ただし、救難通信を遠い航路まで届けるには、さらに大きな電力が必要だ。',
+    'beacon', '工場を続ける');
   markDirty();
+}
+function completeRescueTransmission(b) {
+  if (G.rescueCompleted) return false;
+  const status = rescueTransmissionStatus(b);
+  if (!status.ready) {
+    const reason = !status.beaconActive ? '先に誘導ビーコンを起動しよう'
+      : !status.hasAdvancedGenerator ? '同じ電力網に、アークコアで稼働中の上位発電機が必要'
+      : !status.powered ? '電力網が停電している'
+      : `余剰電力が足りない（必要 ${CONFIG.FINAL_TRANSMISSION_RESERVE}）`;
+    toast('⚡ ' + reason, 'warn', 4200, true);
+    openBuilding(b, true);
+    return false;
+  }
+  G.rescueCompleted = true;
+  G.flags.q_rescue = true;
+  closePanel();
+  if (!saveGame(true)) {
+    G.rescueCompleted = false;
+    delete G.flags.q_rescue;
+    toast('救難通信の直前にセーブできなかった。空き容量を確認して、もう一度送信してね', 'danger', 5200, true);
+    return false;
+  }
+  sfxBigAchieve();
+  showClearMoment('救難通信 確立',
+    '誘導ビーコンは上位発電機の出力を受け、星の海へ信号を送りきった。<br>' +
+    '遠い航路から、短い応答が返る。<br><br>' +
+    '救難通信、確立。<br>未解析データ残量 98.4%。調査継続を推奨。',
+    'rescue', '工場を続ける');
+  markDirty();
+  return true;
+}
+function showClearMoment(title, message, variant, buttonText) {
+  document.getElementById('clear-title').textContent = title;
+  document.getElementById('clear-msg').innerHTML = message;
+  document.getElementById('btn-clear-continue').textContent = buttonText || 'つづける';
+  drawClearArt(variant);
+  document.getElementById('clear-overlay').style.display = 'flex';
 }
 document.getElementById('btn-clear-continue').onclick = () => {
   document.getElementById('clear-overlay').style.display = 'none';
@@ -3374,7 +3626,7 @@ function drawClearArt(variant) {
   x.fillStyle = '#cfd8ff'; x.beginPath(); x.arc(ax, ay - 92, 22, Math.PI * 0.95, Math.PI * 2.05); x.fill();
   x.fillStyle = '#ff6b81'; x.fillRect(ax - 4, ay - 104, 8, 8);
   // 信号
-  const glow = variant === 'beacon' ? '155,135,192' : '94,230,200';
+  const glow = variant === 'rescue' ? '212,163,72' : (variant === 'beacon' ? '155,135,192' : '94,230,200');
   for (let i = 1; i <= 3; i++) {
     x.strokeStyle = `rgba(${glow},${1 - i * 0.25})`;
     x.lineWidth = 3;
@@ -3434,6 +3686,7 @@ function makeSave() {
     buildMenuSeen: G.buildMenuSeen || {},
     cleared: G.cleared,
     beaconCleared: !!G.beaconCleared,
+    rescueCompleted: !!G.rescueCompleted,
     time: G.time,
     lastSeen: G.lastSeen,
   };
@@ -3489,6 +3742,7 @@ function validateSaveVersion(d) {
       (d.lastSeen !== undefined && (!Number.isFinite(d.lastSeen) || d.lastSeen < 0)) ||
       (d.cleared !== undefined && typeof d.cleared !== 'boolean') ||
       (d.beaconCleared !== undefined && typeof d.beaconCleared !== 'boolean') ||
+      (d.rescueCompleted !== undefined && typeof d.rescueCompleted !== 'boolean') ||
       !isValidBooleanMap(d.flags) || !isValidBooleanMap(d.research, techIds) ||
       !isValidBooleanMap(d.discovered, itemIds) || !isValidBooleanMap(d.buildMenuSeen, buildingIds)) return false;
   if (d.researchProgress !== undefined && d.researchProgress !== null) {
@@ -3642,6 +3896,7 @@ function applySave(d) {
   G.buildMenuSeen = d.buildMenuSeen || null; // nullなら旧セーブ→下のbackfillで補完
   G.cleared = !!d.cleared;
   G.beaconCleared = !!d.beaconCleared;
+  G.rescueCompleted = !!d.rescueCompleted;
   G.time = d.time || 0;
   G.lastSeen = d.lastSeen || Date.now();
   backfillHadStoneBlock();
@@ -4010,7 +4265,7 @@ function showOfflineReport(seconds, before, after) {
 // バージョンチェック（インストール済みPWAにコード更新が反映されない対策）
 // デプロイのたびにGAME_VERSIONを上げると、開いたままのPWAに更新通知が出せる
 // =====================================================================
-const GAME_VERSION = '4.18.0';
+const GAME_VERSION = '4.19.0';
 async function checkForUpdate() {
   try {
     // cache無視で自身(index.html)を再取得し、埋め込まれたGAME_VERSION表記を比較する

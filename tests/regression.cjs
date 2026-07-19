@@ -36,6 +36,7 @@ function makeElement(id = '') {
     remove() {},
     focus() {},
     select() {},
+    setAttribute(name, value) { this[name] = String(value); },
     setSelectionRange() {},
     querySelector() { return makeElement(); },
     querySelectorAll() { return []; },
@@ -108,7 +109,7 @@ const run = code => vm.runInContext(code, sandbox);
 const runAsync = code => vm.runInContext(`(async () => { ${code} })()`, sandbox);
 
 (async () => {
-assert.equal(run('GAME_VERSION'), '4.18.0');
+assert.equal(run('GAME_VERSION'), '4.19.0');
 assert.equal(run('SAVE_VERSION'), 9);
 
 const mapResult = run(`(() => {
@@ -161,6 +162,22 @@ const saveResult = run(`(() => {
   genMap(20260702);
   const current = makeSave();
   const validCurrent = validateSaveVersion(current) && !!migrateToLatest(current);
+  const legacyCurrent = cloneSaveData(current);
+  delete legacyCurrent.rescueCompleted;
+  const legacyMigrated = migrateToLatest(legacyCurrent);
+  G.rescueCompleted = true;
+  applySave(legacyMigrated.data);
+  const missingRescueDefaultsFalse = G.rescueCompleted === false;
+  const completedCurrent = cloneSaveData(current);
+  completedCurrent.rescueCompleted = true;
+  const completedMigrated = migrateToLatest(completedCurrent);
+  applySave(completedMigrated.data);
+  const completedRescueRestored = G.rescueCompleted === true;
+  const rejectedBadRescueValues = [1, 'true', null, {}].every(value => {
+    const bad = cloneSaveData(current);
+    bad.rescueCompleted = value;
+    return migrateToLatest(bad) === null;
+  });
   const malformed = { ...current, tiles: current.tiles.slice(1) };
   const before = JSON.stringify(makeSave());
   const rejectedMalformed = migrateToLatest(malformed) === null;
@@ -208,6 +225,9 @@ const saveResult = run(`(() => {
   const migrated = migrateToLatest(old);
   return {
     validCurrent,
+    missingRescueDefaultsFalse,
+    completedRescueRestored,
+    rejectedBadRescueValues,
     rejectedMalformed,
     unchangedAfterReject,
     rejectedUnknown,
@@ -227,6 +247,9 @@ const saveResult = run(`(() => {
 })()`);
 assert.deepEqual(JSON.parse(JSON.stringify(saveResult)), {
   validCurrent: true,
+  missingRescueDefaultsFalse: true,
+  completedRescueRestored: true,
+  rejectedBadRescueValues: true,
   rejectedMalformed: true,
   unchangedAfterReject: true,
   rejectedUnknown: true,
@@ -242,6 +265,111 @@ assert.deepEqual(JSON.parse(JSON.stringify(saveResult)), {
   sentinel2: '3',
   explored1: '1',
   explored2: '1',
+});
+
+const rescuePowerResult = run(`(() => {
+  function install(buildings) {
+    G.buildings = {};
+    for (const b of buildings) G.buildings[bkey(b.x, b.y)] = b;
+    G.flags = { hintPowerShown: true };
+    G.beaconCleared = true;
+    G.rescueCompleted = false;
+    markPowerTopologyDirty();
+    tickPower(Object.values(G.buildings), 0.5);
+  }
+  const base = () => ({ type: 'base', x: 24, y: 24 });
+  const beacon = () => ({ type: 'beacon', x: 26, y: 24, active: true });
+  const advanced = (x = 25, active = true, job = 'arcCore') => ({
+    type: 'advGenerator', x, y: 24, input: {}, active, job, progress: 0,
+  });
+
+  let b = beacon(), adv = advanced();
+  install([base(), b, adv]);
+  const readyWithFueledAdvancedGenerator = rescueTransmissionStatus(b).ready;
+  const net = powerNetworkForBuilding(b);
+  net.demand = net.supply - CONFIG.FINAL_TRANSMISSION_RESERVE;
+  net.effectiveSupply = net.supply;
+  const reserve20Ready = rescueTransmissionStatus(b).ready;
+  net.demand = net.supply - (CONFIG.FINAL_TRANSMISSION_RESERVE - 1);
+  const reserve19Blocked = !rescueTransmissionStatus(b).ready;
+
+  b = beacon(); adv = advanced(25, false, null);
+  install([base(), b, adv]);
+  const inactiveBlocked = !rescueTransmissionStatus(b).ready;
+  b = beacon(); adv = advanced(25, true, 'crystal');
+  install([base(), b, adv]);
+  const wrongFuelBlocked = !rescueTransmissionStatus(b).ready;
+  b = beacon(); adv = advanced(170, true, 'arcCore');
+  install([base(), b, adv]);
+  const otherGridBlocked = !rescueTransmissionStatus(b).ready;
+
+  const remoteGenerator = { type: 'generator', x: 170, y: 24, input: {}, active: false, job: null, progress: 0 };
+  const remoteMiner = { type: 'miner', x: 171, y: 24, timer: 0, buffer: {}, powered: true };
+  install([base(), remoteGenerator, remoteMiner]);
+  const snapshots = powerNetworkSnapshots();
+  const aggregateSupply = snapshots.reduce((sum, s) => sum + s.supply, 0);
+  const aggregateDemand = snapshots.reduce((sum, s) => sum + s.demand, 0);
+  const separateGridOutageVisible = aggregateSupply > aggregateDemand && snapshots.filter(s => s.outage).length === 1;
+
+  return {
+    readyWithFueledAdvancedGenerator, reserve20Ready, reserve19Blocked,
+    inactiveBlocked, wrongFuelBlocked, otherGridBlocked, separateGridOutageVisible,
+  };
+})()`);
+assert.deepEqual(JSON.parse(JSON.stringify(rescuePowerResult)), {
+  readyWithFueledAdvancedGenerator: true,
+  reserve20Ready: true,
+  reserve19Blocked: true,
+  inactiveBlocked: true,
+  wrongFuelBlocked: true,
+  otherGridBlocked: true,
+  separateGridOutageVisible: true,
+});
+
+const rescueCompletionResult = run(`(() => {
+  function setupReady() {
+    const base = { type: 'base', x: 24, y: 24 };
+    const beacon = { type: 'beacon', x: 26, y: 24, active: true };
+    const adv = { type: 'advGenerator', x: 25, y: 24, input: {}, active: true, job: 'arcCore', progress: 0 };
+    G.buildings = { [bkey(base.x, base.y)]: base, [bkey(beacon.x, beacon.y)]: beacon, [bkey(adv.x, adv.y)]: adv };
+    G.flags = { hintPowerShown: true };
+    G.beaconCleared = true;
+    G.rescueCompleted = false;
+    markPowerTopologyDirty();
+    tickPower(Object.values(G.buildings), 0.5);
+    return beacon;
+  }
+  const originalSaveGame = saveGame;
+  const originalShowClearMoment = showClearMoment;
+  const originalSfxBigAchieve = sfxBigAchieve;
+  let saveCalls = 0, clearCalls = 0;
+  saveGame = () => { saveCalls++; return true; };
+  showClearMoment = () => { clearCalls++; };
+  sfxBigAchieve = () => {};
+  let b = setupReady();
+  const first = completeRescueTransmission(b);
+  const second = completeRescueTransmission(b);
+  const success = { first, second, completed: G.rescueCompleted, saveCalls, clearCalls };
+
+  saveCalls = 0; clearCalls = 0;
+  saveGame = () => { saveCalls++; return false; };
+  b = setupReady();
+  const failed = completeRescueTransmission(b);
+  const failure = {
+    failed,
+    completed: G.rescueCompleted,
+    flagKept: !!G.flags.q_rescue,
+    saveCalls,
+    clearCalls,
+  };
+  saveGame = originalSaveGame;
+  showClearMoment = originalShowClearMoment;
+  sfxBigAchieve = originalSfxBigAchieve;
+  return { success, failure };
+})()`);
+assert.deepEqual(JSON.parse(JSON.stringify(rescueCompletionResult)), {
+  success: { first: true, second: false, completed: true, saveCalls: 1, clearCalls: 1 },
+  failure: { failed: false, completed: false, flagKept: false, saveCalls: 1, clearCalls: 0 },
 });
 
 const saveFailure = run(`(() => {
@@ -321,7 +449,7 @@ assert.deepEqual(JSON.parse(JSON.stringify(offlineResult)), {
 });
 
 assert(!html.includes('建設メニューの「基本」から小型発電機'));
-console.log('regression ok: map, offline production, save validation/migration, save failure UI');
+console.log('regression ok: map, offline production, save validation/migration, power grids, rescue completion, save failure UI');
 })().catch(error => {
   console.error(error);
   process.exitCode = 1;
