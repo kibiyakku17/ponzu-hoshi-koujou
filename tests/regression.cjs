@@ -109,8 +109,83 @@ const run = code => vm.runInContext(code, sandbox);
 const runAsync = code => vm.runInContext(`(async () => { ${code} })()`, sandbox);
 
 (async () => {
-assert.equal(run('GAME_VERSION'), '4.19.0');
+assert.equal(run('GAME_VERSION'), '4.20.0');
 assert.equal(run('SAVE_VERSION'), 9);
+
+const researchQuestFlow = run(`(() => {
+  G.cleared = true;
+  G.beaconCleared = true;
+  G.rescueCompleted = false;
+  G.player.inv = {};
+  G.player.batteryUpgraded = true;
+  G.discovered = {};
+  G.research = {};
+  G.researchProgress = {};
+  G.buildings = {};
+  G.flags = {
+    q_gate: true, q_copper: true, q_circuit: true, q_battery: true, q_beacon: true,
+    had_copperWire: true, had_circuit: true,
+  };
+  function currentQuest() {
+    updateFlags();
+    const q = QUESTS_POST.find(item => !G.flags['q_' + item.id]);
+    return q ? { id: q.id, text: questText(q) } : null;
+  }
+  const stages = [currentQuest()];
+  const lab = { type: 'lab', x: 25, y: 24, input: {}, currentTech: null, job: null, progress: 0 };
+  G.buildings[bkey(lab.x, lab.y)] = lab;
+  stages.push(currentQuest());
+  const assembler = { type: 'assembler', x: 26, y: 24, input: {}, output: {}, job: null, progress: 0, recipeOut: null };
+  G.buildings[bkey(assembler.x, assembler.y)] = assembler;
+  stages.push(currentQuest());
+  assembler.recipeOut = 'researchPack1';
+  stages.push(currentQuest());
+  lab.currentTech = 'splitter';
+  lab.input.researchPack1 = 1;
+  stages.push(currentQuest());
+  G.research.splitter = true;
+  stages.push(currentQuest());
+  const tier1Text = stages[stages.length - 1].text;
+  const splitterWasNotBuilt = !hasBuilding('splitter');
+  for (const tech of CONFIG.RESEARCH.filter(t => t.tier === 1)) G.research[tech.id] = true;
+  stages.push(currentQuest());
+  G.researchProgress.gate2Blueprint = { researchPack2: 1 };
+  stages.push(currentQuest());
+  G.research.gate2Blueprint = true;
+  stages.push(currentQuest());
+  G.flags.q_gate2 = true;
+  stages.push(currentQuest());
+  return { stages, tier1Text, splitterWasNotBuilt };
+})()`);
+assert.deepEqual(JSON.parse(JSON.stringify(researchQuestFlow.stages.map(stage => stage.id))), [
+  'researchLab',
+  'researchPack1Setup',
+  'researchPack1Setup',
+  'splitterStart',
+  'splitterDone',
+  'tier1Research',
+  'researchPack2',
+  'gate2research',
+  'gate2',
+  'gate3research',
+]);
+assert.match(researchQuestFlow.tier1Text, /1\/5完了/);
+assert.equal(researchQuestFlow.splitterWasNotBuilt, true);
+
+const researchGuideHtml = run(`(() => {
+  G.player.inv = {};
+  G.research = {};
+  G.researchProgress = {};
+  const lab = { type: 'lab', x: 25, y: 24, input: {}, currentTech: null, job: null, progress: 0 };
+  G.buildings = { [bkey(lab.x, lab.y)]: lab };
+  openBuilding(lab);
+  return panelEl.innerHTML;
+})()`);
+for (const phrase of ['研究の進め方', '研究パックを作る', '研究を選ぶ', '研究所にパックを入れる', '設備や能力が解禁']) {
+  assert(researchGuideHtml.includes(phrase), `研究ガイドに「${phrase}」がない`);
+}
+assert(researchGuideHtml.includes('Tier 1（0/5完了）'));
+assert(researchGuideHtml.includes('Tier 1をすべて完了すると研究できる'));
 
 const mapResult = run(`(() => {
   let minimumArea1 = Infinity;
@@ -449,7 +524,7 @@ assert.deepEqual(JSON.parse(JSON.stringify(offlineResult)), {
 });
 
 assert(!html.includes('建設メニューの「基本」から小型発電機'));
-console.log('regression ok: map, offline production, save validation/migration, power grids, rescue completion, save failure UI');
+console.log('regression ok: missions/research guide, map, offline production, save validation/migration, power grids, rescue completion, save failure UI');
 })().catch(error => {
   console.error(error);
   process.exitCode = 1;

@@ -92,6 +92,9 @@
   .btn:disabled{opacity:.35;}
   .btn.small{padding:6px 9px;font-size:12px;}
   .cost{font-size:11px;color:var(--sub);}
+  .research-guide{margin:0 0 10px;padding:10px 12px;border:1px solid var(--line);border-radius:10px;
+    background:var(--panel2);color:var(--text);font-size:13px;line-height:1.55;}
+  .research-guide b{color:var(--warn);}
   .cost .ng{color:var(--danger);}
   #panel .close-x{margin-left:auto;background:none;border:none;color:var(--sub);font-size:22px;padding:2px 8px;}
   /* ===== 建設メニュー：コンパクトカード（Phase4.15①） ===== */
@@ -1411,7 +1414,8 @@ function tickLab(b, dt) {
         if (tech.id === 'gateWidening') {
           for (const bd of BORDERS) if (isGateRepaired(bd)) applyGateWideningFor(bd);
         }
-        toast(`🔬「${tech.name}」の研究が完了した！`);
+        const unlockedHint = tech.id === 'splitter' ? ' 必要なときは、建設メニューから使える。' : '';
+        toast(`🔬「${tech.name}」の研究が完了した！${unlockedHint}`);
         sfxResearchDone();
         saveGame();
       }
@@ -1960,6 +1964,22 @@ const QUESTS_POST = [
   { id: 'circuit', check: () => everHad('circuit'), text: '作業台で<b>回路</b>を作ろう（銅線×2＋鉄板×1）' },
   { id: 'battery', check: () => !!G.player.batteryUpgraded, text: '作業台で<b>バッテリー拡張</b>をしよう（回路×3＋結晶×2）' },
   { id: 'beacon',  check: () => G.beaconCleared, text: '<b>誘導ビーコン</b>を建てて起動し、位置と誘導信号を確立しよう（回路×5＋部品×10＋結晶×5）' },
+  { id: 'researchLab', check: () => hasBuilding('lab') || hasResearchActivity(),
+    text: '<b>研究所</b>を建てよう（鉄板×10＋回路×5）' },
+  { id: 'researchPack1Setup', check: () => hasResearchPack1Setup(),
+    text: '<b>組立機</b>を建て、<b>研究パックI</b>のレシピを選ぼう' },
+  { id: 'splitterStart', check: () => splitterResearchStarted(),
+    text: '研究所で<b>「分配器」</b>を選び、研究パックIを入れて研究を始めよう' },
+  { id: 'splitterDone', check: () => !!G.research.splitter,
+    text: '<b>「分配器」</b>の研究を完了しよう（解禁後の設置は必要なときでOK）' },
+  { id: 'tier1Research', check: () => researchTierProgress(1).done === researchTierProgress(1).total,
+    text: () => { const p = researchTierProgress(1); return `<b>Tier 1</b>の研究をすべて完了しよう（${p.done}/${p.total}完了）`; } },
+  { id: 'researchPack2', check: () => hasResearchPack2Evidence(),
+    text: '<b>研究パックII</b>を作ろう（回路×1＋結晶×1）' },
+  { id: 'gate2research', check: () => !!G.research.gate2Blueprint,
+    text: '研究所で<b>「第3エリアのゲート図面」</b>を研究しよう' },
+  { id: 'gate2', check: () => !!G.flags['q_gate2'],
+    text: 'さらに東側の<b>壊れたゲート</b>を修理して第3エリアへ行こう（部品×20＋石ブロック×20＋回路×10）' },
   { id: 'gate3research', check: () => !!G.research.gate3Blueprint,
     text: '研究所で<b>「第4エリアのゲート図面」</b>を研究しよう（さらに先へ進むにはこれが必要）' },
   { id: 'gate3',   check: () => !!G.flags['q_gate3'],
@@ -1975,8 +1995,47 @@ function hasBuilding(type) { return Object.values(G.buildings).some(b => b.type 
 function buildingOfType(type) { return Object.values(G.buildings).find(b => b.type === type); }
 function everHad(item) { return !!G.flags['had_' + item]; }
 function totalEverMined() { return 0; } // gather判定は所持数で簡易化
+function researchTierProgress(tier) {
+  const techs = CONFIG.RESEARCH.filter(t => t.tier === tier);
+  return { done: techs.filter(t => G.research[t.id]).length, total: techs.length };
+}
+function hasResearchActivity() {
+  if (Object.values(G.research).some(Boolean)) return true;
+  return Object.values(G.researchProgress).some(p => p && Object.values(p).some(n => n > 0));
+}
+function splitterResearchStarted() {
+  if (G.research.splitter) return true;
+  const progress = G.researchProgress.splitter;
+  if (progress && Object.values(progress).some(n => n > 0)) return true;
+  return Object.values(G.buildings).some(b => b.type === 'lab' && b.currentTech === 'splitter' &&
+    (invCount(b.input, 'researchPack1') > 0 || b.job === 'researchPack1'));
+}
+function hasResearchPack1Setup() {
+  return Object.values(G.buildings).some(b => b.type === 'assembler' && b.recipeOut === 'researchPack1') ||
+    splitterResearchStarted();
+}
+function hasStoredItem(item) {
+  if (invCount(G.player.inv, item) > 0) return true;
+  for (const b of Object.values(G.buildings)) {
+    for (const field of ['input', 'output', 'inv', 'buffer']) {
+      if (b[field] && invCount(b[field], item) > 0) return true;
+    }
+    if (b.type === 'lab' && b.job === item) return true;
+  }
+  return false;
+}
+function hasResearchPack2Evidence() {
+  if (everHad('researchPack2') || G.discovered.researchPack2 || hasStoredItem('researchPack2')) return true;
+  for (const tech of CONFIG.RESEARCH.filter(t => t.tier === 2)) {
+    if (G.research[tech.id]) return true;
+    const progress = G.researchProgress[tech.id];
+    if (progress && (progress.researchPack2 || 0) > 0) return true;
+  }
+  return false;
+}
+function questText(q) { return typeof q.text === 'function' ? q.text() : q.text; }
 function updateFlags() {
-  for (const k of ['ironPlate', 'stoneBlock', 'part', 'copperWire', 'circuit', 'starCrystalCore']) {
+  for (const k of ['ironPlate', 'stoneBlock', 'part', 'copperWire', 'circuit', 'researchPack2', 'starCrystalCore']) {
     if (invCount(G.player.inv, k) > 0) {
       if (!G.flags['had_' + k]) { G.flags['had_' + k] = true; markDirty(); }
     }
@@ -1989,11 +2048,11 @@ function renderQuest() {
   const el = document.getElementById('quest');
   if (!G.cleared) {
     const q = QUESTS.find(q => !G.flags['q_' + q.id]);
-    el.innerHTML = q ? '🎯 ' + q.text : '🎉 全ステップ完了！';
+    el.innerHTML = q ? '🎯 ' + questText(q) : '🎉 全ステップ完了！';
     return;
   }
   const q2 = QUESTS_POST.find(q => !G.flags['q_' + q.id]);
-  el.innerHTML = q2 ? '🎯 ' + q2.text : '🎉 すべての目標を達成した！自由に工場をひろげよう';
+  el.innerHTML = q2 ? '🎯 ' + questText(q2) : '🎉 すべての目標を達成した！自由に工場をひろげよう';
 }
 
 // =====================================================================
@@ -3081,11 +3140,13 @@ function openBuilding(b, keep) {
   else if (b.type === 'lab') {
     const curTech = b.currentTech ? researchById(b.currentTech) : null;
     const prog = curTech ? Math.round(labProgress(b) * 100) : 0;
+    const tier1Progress = researchTierProgress(1);
     const treeRows = [1, 2].map(tier => {
+      const tierProgress = researchTierProgress(tier);
       const rows = CONFIG.RESEARCH.filter(t => t.tier === tier).map(t => {
         const done = !!G.research[t.id];
         const avail = techAvailable(t);
-        const state = done ? '解除済み' : (avail ? '解除可能' : 'ロック中');
+        const state = done ? '完了' : (avail ? '研究できる' : 'ロック中');
         const selected = b.currentTech === t.id;
         const canSelect = !done && avail;
         return `<div class="row" style="opacity:${done || avail ? 1 : .5}">
@@ -3093,7 +3154,9 @@ function openBuilding(b, keep) {
           <button class="btn ${selected ? 'primary' : ''}" data-lab-tech="${t.id}" ${canSelect ? '' : 'disabled'}>${selected ? '選択中' : (done ? '完了' : '選ぶ')}</button>
         </div>`;
       }).join('');
-      return `<h3>Tier ${tier}</h3>${rows}`;
+      const lockNote = tier === 2 && tier1Progress.done < tier1Progress.total
+        ? '<div class="cost" style="margin-bottom:6px">Tier 1をすべて完了すると研究できるようになります。</div>' : '';
+      return `<h3>Tier ${tier}（${tierProgress.done}/${tierProgress.total}完了）</h3>${lockNote}${rows}`;
     }).join('');
     const inRows = curTech ? ['researchPack1', 'researchPack2'].filter(k => curTech.cost[k]).map(item => {
       const have = invCount(inv, item), cur = invCount(b.input, item), consumed = getResearchProgress(b.currentTech)[item] || 0, need = curTech.cost[item];
@@ -3102,7 +3165,8 @@ function openBuilding(b, keep) {
         <button class="btn small" data-in="${item}" data-n="10" ${have ? '' : 'disabled'}>×10</button></div>`;
     }).join('') : '';
     html = `<h2>🔬 研究所<button class="close-x">✕</button></h2>
-      ${curTech ? `<h3>研究中：${curTech.name}（${prog}%）</h3><div class="progress"><i style="width:${prog}%"></i></div>${inRows}` : '<div class="row"><span class="cost">下から研究対象を選んでね</span></div>'}
+      <div class="research-guide"><b>研究の進め方</b><br>① 組立機で研究パックを作る → ② 研究を選ぶ → ③ 研究所にパックを入れる<br>必要数を使うと、新しい設備や能力が解禁されます。</div>
+      ${curTech ? `<h3>研究中：${curTech.name}（${prog}%）</h3><div class="progress"><i style="width:${prog}%"></i></div>${inRows}` : '<div class="row">下から研究対象を選んでね</div>'}
       ${treeRows}` + removeBtn;
   }
   else if (b.type === 'chest' || b.type === 'chestIn') {
@@ -4265,7 +4329,7 @@ function showOfflineReport(seconds, before, after) {
 // バージョンチェック（インストール済みPWAにコード更新が反映されない対策）
 // デプロイのたびにGAME_VERSIONを上げると、開いたままのPWAに更新通知が出せる
 // =====================================================================
-const GAME_VERSION = '4.19.0';
+const GAME_VERSION = '4.20.0';
 async function checkForUpdate() {
   try {
     // cache無視で自身(index.html)を再取得し、埋め込まれたGAME_VERSION表記を比較する
