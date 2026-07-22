@@ -109,7 +109,7 @@ const run = code => vm.runInContext(code, sandbox);
 const runAsync = code => vm.runInContext(`(async () => { ${code} })()`, sandbox);
 
 (async () => {
-assert.equal(run('GAME_VERSION'), '4.20.0');
+assert.equal(run('GAME_VERSION'), '4.21.0');
 assert.equal(run('SAVE_VERSION'), 9);
 
 const researchQuestFlow = run(`(() => {
@@ -523,8 +523,114 @@ assert.deepEqual(JSON.parse(JSON.stringify(offlineResult)), {
   minerOffline: 22,
 });
 
+const offlineProtection = await runAsync(`
+  G.tiles.fill(T_PLAIN); G.ore.fill(0);
+  G.flags = {}; G.research = {}; G.researchProgress = {};
+  const base = { type: 'base', x: 24, y: 24 };
+  const baseMiner = { type: 'miner', x: 25, y: 24, timer: 0, buffer: {}, powered: true };
+  const generator = { type: 'generator', x: 100, y: 24, input: { crystal: 5 }, job: 'crystal', progress: 0, active: true };
+  const remoteMiner = { type: 'miner', x: 101, y: 24, timer: 0, buffer: {}, powered: true };
+  G.tiles[idx(25, 24)] = T_IRON; G.ore[idx(25, 24)] = 10000;
+  G.tiles[idx(101, 24)] = T_IRON; G.ore[idx(101, 24)] = 10000;
+  G.buildings = {
+    [bkey(base.x, base.y)]: base,
+    [bkey(baseMiner.x, baseMiner.y)]: baseMiner,
+    [bkey(generator.x, generator.y)]: generator,
+    [bkey(remoteMiner.x, remoteMiner.y)]: remoteMiner,
+  };
+  markPowerTopologyDirty();
+  const result = await simulateOffline(120);
+  return {
+    result,
+    generatorInput: generator.input.crystal || 0,
+    generatorActive: generator.active,
+    generatorJob: generator.job,
+    remotePowered: remoteMiner.powered,
+    baseProduced: baseMiner.buffer.ironOre || 0,
+    remoteProduced: remoteMiner.buffer.ironOre || 0,
+  };
+`);
+assert.equal(offlineProtection.result.protectedNetworks.length, 1);
+assert.match(offlineProtection.result.protectedNetworks[0].name, /第3エリア電力網/);
+assert.equal(offlineProtection.result.protectedNetworks[0].progressedSeconds, 30);
+assert.equal(offlineProtection.generatorInput, 4);
+assert.equal(offlineProtection.generatorActive, true);
+assert.equal(offlineProtection.generatorJob, 'crystal');
+assert.equal(offlineProtection.remotePowered, true);
+assert(offlineProtection.remoteProduced > 0);
+assert(offlineProtection.baseProduced > offlineProtection.remoteProduced);
+
+const batteryOnlyProtection = await runAsync(`
+  G.flags = {}; G.buildings = {};
+  const generator = { type: 'generator', x: 100, y: 24, input: {}, job: null, progress: 0, active: false };
+  const battery = { type: 'battery', x: 101, y: 24, charge: 100 };
+  const miner = { type: 'miner', x: 102, y: 24, timer: 0, buffer: {}, powered: true };
+  G.buildings[bkey(generator.x, generator.y)] = generator;
+  G.buildings[bkey(battery.x, battery.y)] = battery;
+  G.buildings[bkey(miner.x, miner.y)] = miner;
+  markPowerTopologyDirty();
+  const result = await simulateOffline(60);
+  return {
+    result,
+    batteryCharge: battery.charge,
+    fuel: generator.input.crystal || 0,
+    powered: miner.powered,
+  };
+`);
+assert.equal(batteryOnlyProtection.result.protectedNetworks.length, 1);
+assert.equal(batteryOnlyProtection.result.protectedNetworks[0].progressedSeconds, 0);
+assert.equal(batteryOnlyProtection.batteryCharge, 100);
+assert.equal(batteryOnlyProtection.fuel, 0);
+assert.equal(batteryOnlyProtection.powered, true);
+
+const batteryReserveProgress = await runAsync(`
+  G.flags = {}; G.buildings = {};
+  const generator = { type: 'generator', x: 100, y: 24, input: {}, job: null, progress: 0, active: false };
+  const battery = { type: 'battery', x: 101, y: 24, charge: 150 };
+  const miner = { type: 'miner', x: 102, y: 24, timer: 0, buffer: {}, powered: true };
+  G.buildings[bkey(generator.x, generator.y)] = generator;
+  G.buildings[bkey(battery.x, battery.y)] = battery;
+  G.buildings[bkey(miner.x, miner.y)] = miner;
+  markPowerTopologyDirty();
+  const result = await simulateOffline(60);
+  return { result, batteryCharge: battery.charge, fuel: generator.input.crystal || 0, powered: miner.powered };
+`);
+assert.equal(batteryReserveProgress.result.protectedNetworks.length, 1);
+assert.equal(batteryReserveProgress.result.protectedNetworks[0].progressedSeconds, 29.5);
+assert.equal(batteryReserveProgress.batteryCharge, 120.5);
+assert.equal(batteryReserveProgress.fuel, 0);
+assert.equal(batteryReserveProgress.powered, true);
+
+const alreadyOutage = await runAsync(`
+  G.flags = {}; G.buildings = {};
+  const generator = { type: 'generator', x: 100, y: 24, input: {}, job: null, progress: 0, active: false };
+  const miner = { type: 'miner', x: 101, y: 24, timer: 0, buffer: {}, powered: false };
+  G.buildings[bkey(generator.x, generator.y)] = generator;
+  G.buildings[bkey(miner.x, miner.y)] = miner;
+  markPowerTopologyDirty();
+  const result = await simulateOffline(60);
+  return { result, fuel: generator.input.crystal || 0, active: generator.active, powered: miner.powered };
+`);
+assert.deepEqual(JSON.parse(JSON.stringify(alreadyOutage)), {
+  result: { protectedNetworks: [] }, fuel: 0, active: false, powered: false,
+});
+
+const normalFuelUse = run(`(() => {
+  G.flags = {}; G.buildings = {};
+  const generator = { type: 'generator', x: 100, y: 24, input: {}, job: 'crystal', progress: 0, active: true };
+  G.buildings[bkey(generator.x, generator.y)] = generator;
+  markPowerTopologyDirty();
+  for (let i = 0; i < 61; i++) tickMachines(0.5);
+  return { active: generator.active, job: generator.job };
+})()`);
+assert.deepEqual(JSON.parse(JSON.stringify(normalFuelUse)), { active: false, job: null });
+
+run(`showOfflineReport(120, {}, {}, ${JSON.stringify(offlineProtection.result)})`);
+assert.match(run('panelEl.innerHTML'), /燃料保護のため休止/);
+assert.match(run('panelEl.innerHTML'), /第3エリア電力網/);
+
 assert(!html.includes('建設メニューの「基本」から小型発電機'));
-console.log('regression ok: missions/research guide, map, offline production, save validation/migration, power grids, rescue completion, save failure UI');
+console.log('regression ok: missions/research guide, map, protected offline production, save validation/migration, power grids, rescue completion, save failure UI');
 })().catch(error => {
   console.error(error);
   process.exitCode = 1;
