@@ -109,7 +109,7 @@ const run = code => vm.runInContext(code, sandbox);
 const runAsync = code => vm.runInContext(`(async () => { ${code} })()`, sandbox);
 
 (async () => {
-assert.equal(run('GAME_VERSION'), '4.23.0');
+assert.equal(run('GAME_VERSION'), '4.24.0');
 assert.equal(run('SAVE_VERSION'), 9);
 
 const safeUiTapResult = run(`(() => {
@@ -597,6 +597,26 @@ assert.equal(offlineProtection.remotePowered, true);
 assert(offlineProtection.remoteProduced > 0);
 assert(offlineProtection.baseProduced > offlineProtection.remoteProduced);
 
+const baseConnectedProtection = await runAsync(`
+  G.tiles.fill(T_PLAIN); G.ore.fill(0);
+  G.flags = {}; G.player.inv = {};
+  const base = { type: 'base', x: 24, y: 24 };
+  const generator = { type: 'generator', x: 30, y: 24, input: { crystal: 6 }, job: 'crystal', progress: 0, active: true };
+  const consumers = Array.from({ length: 11 }, (_, i) => ({ type: 'assembler', x: 25 + (i % 4), y: 20 + Math.floor(i / 4), input: {}, output: {}, job: null, progress: 0, recipeOut: null, powered: true }));
+  G.buildings = {
+    [bkey(base.x, base.y)]: base,
+    [bkey(generator.x, generator.y)]: generator,
+    ...Object.fromEntries(consumers.map(b => [bkey(b.x, b.y), b])),
+  };
+  markPowerTopologyDirty();
+  const result = await simulateOffline(240);
+  return { result, fuel: generator.input.crystal || 0, active: generator.active, powered: consumers.every(b => b.powered) };
+`);
+assert.equal(baseConnectedProtection.result.protectedNetworks.length, 1);
+assert.match(baseConnectedProtection.result.protectedNetworks[0].name, /拠点電力網/);
+assert.equal(baseConnectedProtection.result.protectedNetworks[0].progressedSeconds, 60);
+assert.deepEqual(JSON.parse(JSON.stringify({ fuel: baseConnectedProtection.fuel, active: baseConnectedProtection.active, powered: baseConnectedProtection.powered })), { fuel: 4, active: true, powered: true });
+
 const batteryOnlyProtection = await runAsync(`
   G.flags = {}; G.buildings = {};
   const generator = { type: 'generator', x: 100, y: 24, input: {}, job: null, progress: 0, active: false };
@@ -651,6 +671,28 @@ const alreadyOutage = await runAsync(`
 assert.deepEqual(JSON.parse(JSON.stringify(alreadyOutage)), {
   result: { protectedNetworks: [] }, fuel: 0, active: false, powered: false,
 });
+
+const offlineFuelRecovery = run(`(() => {
+  G.tiles.fill(T_PLAIN); G.ore.fill(0);
+  G.flags = {}; G.player.inv = {};
+  const generator = { type: 'generator', x: 100, y: 24, input: {}, job: null, progress: 0, active: false };
+  G.buildings = { [bkey(generator.x, generator.y)]: generator };
+  const recovery = recoverOfflineFuelLockout();
+  return { recovery, fuel: generator.input.crystal || 0, granted: !!G.flags.offlineFuelRecoveryGranted, secondRun: recoverOfflineFuelLockout() };
+})()`);
+assert.deepEqual(JSON.parse(JSON.stringify(offlineFuelRecovery)), {
+  recovery: { generators: 1, fuelPerGenerator: 5 }, fuel: 5, granted: true, secondRun: null,
+});
+
+const storedCrystalDoesNotRecover = run(`(() => {
+  G.tiles.fill(T_PLAIN); G.ore.fill(0);
+  G.flags = {}; G.player.inv = {};
+  const generator = { type: 'generator', x: 100, y: 24, input: {}, job: null, progress: 0, active: false };
+  const chest = { type: 'chest', x: 101, y: 24, inv: { crystal: 1 } };
+  G.buildings = { [bkey(generator.x, generator.y)]: generator, [bkey(chest.x, chest.y)]: chest };
+  return { recovery: recoverOfflineFuelLockout(), fuel: generator.input.crystal || 0, granted: !!G.flags.offlineFuelRecoveryGranted };
+})()`);
+assert.deepEqual(JSON.parse(JSON.stringify(storedCrystalDoesNotRecover)), { recovery: null, fuel: 0, granted: false });
 
 const normalFuelUse = run(`(() => {
   G.flags = {}; G.buildings = {};
