@@ -109,7 +109,7 @@ const run = code => vm.runInContext(code, sandbox);
 const runAsync = code => vm.runInContext(`(async () => { ${code} })()`, sandbox);
 
 (async () => {
-assert.equal(run('GAME_VERSION'), '4.21.0');
+assert.equal(run('GAME_VERSION'), '4.22.0');
 assert.equal(run('SAVE_VERSION'), 9);
 
 const researchQuestFlow = run(`(() => {

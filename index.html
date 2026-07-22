@@ -1650,6 +1650,8 @@ function tickFurnace(b, dt) {
 const PERF_REPORT_KEY = 'hoshiFactoryPerfReportV1';
 const PERF_HISTORY_LIMIT = 120;
 const PERF_TIMER_STALL_CAPTURE_MS = 750;
+const PERF_BUILD_INTERACTION_LIMIT = 50;
+const PERF_BUILD_TAP_TIMEOUT_MS = 700;
 
 function newPerfBucket(startedAt) {
   return {
@@ -1662,9 +1664,8 @@ function newPerfBucket(startedAt) {
 }
 
 const perfRecorder = {
-  startedAt: Date.now(),
-  samples: [],
-  errors: [],
+  startedAt: Date.now(), samples: [], errors: [],
+  buildMenuInteractions: [], pendingBuildMenuTaps: new Map(), nextBuildMenuTapId: 1,
   current: newPerfBucket(performance.now()),
   ignoreNextFrameGap: false,
   captureQueued: false,
@@ -1673,6 +1674,32 @@ const perfRecorder = {
 };
 
 function roundPerf(n) { return Math.round(n * 100) / 100; }
+function recordBuildMenuInteraction(phase, type, source, startedAt = null, extra = {}) {
+  const now = performance.now();
+  const entry = { at: Date.now(), phase, type, source, elapsedMs: startedAt === null ? null : roundPerf(now - startedAt), buildings: Object.keys(G.buildings).length, dirty, panel: openedPanel?.kind || null, buildMode, ...extra };
+  perfRecorder.buildMenuInteractions.push(entry);
+  if (perfRecorder.buildMenuInteractions.length > PERF_BUILD_INTERACTION_LIMIT) perfRecorder.buildMenuInteractions.shift();
+  return entry;
+}
+function beginBuildMenuTap(type, source) {
+  const tap = { id: perfRecorder.nextBuildMenuTapId++, type, source, startedAt: performance.now() };
+  perfRecorder.pendingBuildMenuTaps.set(tap.id, tap);
+  recordBuildMenuInteraction('pointerdown', type, source, tap.startedAt, { tapId: tap.id });
+  setTimeout(() => { if (perfRecorder.pendingBuildMenuTaps.get(tap.id) !== tap) return; perfRecorder.pendingBuildMenuTaps.delete(tap.id); recordBuildMenuInteraction('click-missed', type, source, tap.startedAt, { tapId: tap.id }); }, PERF_BUILD_TAP_TIMEOUT_MS);
+  return tap;
+}
+function takeBuildMenuTap(type, source) {
+  const tap = [...perfRecorder.pendingBuildMenuTaps.values()].filter(t => t.type === type && t.source === source).sort((a, b) => b.id - a.id)[0] || null;
+  if (tap) perfRecorder.pendingBuildMenuTaps.delete(tap.id);
+  return tap;
+}
+function selectBuildMode(type, source) {
+  const tap = takeBuildMenuTap(type, source), handlerStarted = performance.now();
+  recordBuildMenuInteraction('click-handler', type, source, tap?.startedAt, { tapId: tap?.id || null });
+  buildMode = type; placePreview = null; placementHistory = []; closePanel(); updateBuildModeUI();
+  const handlerMs = roundPerf(performance.now() - handlerStarted);
+  requestAnimationFrame(() => recordBuildMenuInteraction('next-frame', type, source, tap?.startedAt, { tapId: tap?.id || null, handlerMs, selected: buildMode === type }));
+}
 function perfRuntimeSnapshot(bucket, endedAt) {
   const durationMs = Math.max(1, endedAt - bucket.startedAt);
   const heap = performance.memory && performance.memory.usedJSHeapSize;
@@ -1811,6 +1838,7 @@ function buildPerfReport(reason) {
     device: { userAgent: navigator.userAgent, screen: `${screen.width}x${screen.height}`, dpr: devicePixelRatio },
     canvas: { css: `${vw}x${vh}`, pixels: `${canvas.width}x${canvas.height}` },
     state: { buildings: Object.keys(G.buildings).length, effects: fx.length, pathNodes: G.player.path.length, saveChars: saveRaw.length },
+    buildMenuInteractions: perfRecorder.buildMenuInteractions,
     resources: { count: resources.length, transferBytes: resources.reduce((n, r) => n + (r.transferSize || 0), 0) },
     longTaskSupported: perfRecorder.longTaskSupported,
     summary: {
@@ -2905,6 +2933,12 @@ const panelEl = document.getElementById('panel');
 const panelBack = document.getElementById('panel-back');
 let openedPanel = null;   // {kind, b} 再描画用
 panelBack.onclick = closePanel;
+panelEl.addEventListener('pointerdown', e => {
+  const button = e.target?.closest?.('[data-build], #bd-build');
+  if (!button || !panelEl.contains(button)) return;
+  const type = button.dataset.build || button.dataset.detailBuild;
+  if (type) beginBuildMenuTap(type, button.id === 'bd-build' ? 'detail' : 'menu');
+});
 
 function showPanel(html) {
   panelEl.innerHTML = html;
@@ -3037,7 +3071,7 @@ function openBuildMenu(keep) {
     el.onclick = () => openBuildingDetail(el.dataset.detail);
   });
   panelEl.querySelectorAll('[data-build]').forEach(btn => {
-    btn.onclick = () => { buildMode = btn.dataset.build; placePreview = null; placementHistory = []; closePanel(); updateBuildModeUI(); };
+    btn.onclick = () => selectBuildMode(btn.dataset.build, 'menu');
   });
   // このタブで表示した解禁済み設備は既読にする（次回以降NEWバッジを出さない）
   let seenChanged = false;
@@ -3053,13 +3087,11 @@ function openBuildingDetail(type) {
     <div class="row"><div class="grow">必要素材：${costText(CONFIG.COSTS[type])}</div></div>
     <div style="margin-top:12px;display:flex;gap:8px">
       <button class="btn" id="bd-back" style="flex:1">🔨 メニューへ戻る</button>
-      <button class="btn primary" id="bd-build" style="flex:1" ${ok ? '' : 'disabled'}>設置する</button>
+      <button class="btn primary" id="bd-build" data-detail-build="${type}" style="flex:1" ${ok ? '' : 'disabled'}>設置する</button>
     </div>`);
   openedPanel = null;
   panelEl.querySelector('#bd-back').onclick = () => openBuildMenu();
-  panelEl.querySelector('#bd-build').onclick = () => {
-    buildMode = type; placePreview = null; placementHistory = []; closePanel(); updateBuildModeUI();
-  };
+  panelEl.querySelector('#bd-build').onclick = () => selectBuildMode(type, 'detail');
 }
 
 // --- 設備パネル ---
@@ -4459,7 +4491,7 @@ function showOfflineReport(seconds, before, after, offlineResult = null) {
 // バージョンチェック（インストール済みPWAにコード更新が反映されない対策）
 // デプロイのたびにGAME_VERSIONを上げると、開いたままのPWAに更新通知が出せる
 // =====================================================================
-const GAME_VERSION = '4.21.0';
+const GAME_VERSION = '4.22.0';
 async function checkForUpdate() {
   try {
     // cache無視で自身(index.html)を再取得し、埋め込まれたGAME_VERSION表記を比較する
