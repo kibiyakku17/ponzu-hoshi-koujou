@@ -77,7 +77,7 @@
 
   /* ===== パネル（ボトムシート） ===== */
   #panel-back{position:fixed;inset:0;background:rgba(0,0,0,.45);z-index:20;display:none;}
-  #panel{position:fixed;left:0;right:0;bottom:0;max-height:72vh;overflow-y:auto;z-index:21;display:none;
+  #panel{position:fixed;left:0;right:0;bottom:0;max-height:72vh;overflow-y:auto;touch-action:pan-y;z-index:21;display:none;
     background:var(--panel);border-top:2px solid var(--line);border-radius:18px 18px 0 0;
     padding:14px 14px calc(env(safe-area-inset-bottom,0) + 18px);}
   #panel h2{font-size:16px;margin-bottom:10px;color:var(--accent);display:flex;align-items:center;gap:8px;}
@@ -1652,6 +1652,10 @@ const PERF_HISTORY_LIMIT = 120;
 const PERF_TIMER_STALL_CAPTURE_MS = 750;
 const PERF_BUILD_INTERACTION_LIMIT = 50;
 const PERF_BUILD_TAP_TIMEOUT_MS = 700;
+const PERF_UI_INTERACTION_LIMIT = 100;
+const UI_TAP_MOVE_LIMIT_PX = 12;
+const UI_TAP_UP_TIMEOUT_MS = 1200;
+const UI_NATIVE_CLICK_SUPPRESS_MS = 1200;
 
 function newPerfBucket(startedAt) {
   return {
@@ -1666,6 +1670,7 @@ function newPerfBucket(startedAt) {
 const perfRecorder = {
   startedAt: Date.now(), samples: [], errors: [],
   buildMenuInteractions: [], pendingBuildMenuTaps: new Map(), nextBuildMenuTapId: 1,
+  uiInteractions: [], pendingUiTaps: new Map(), nextUiTapId: 1,
   current: newPerfBucket(performance.now()),
   ignoreNextFrameGap: false,
   captureQueued: false,
@@ -1830,7 +1835,7 @@ function buildPerfReport(reason) {
   const saveRaw = localStorage.getItem(SAVE_KEY) || '';
   const resources = performance.getEntriesByType('resource');
   return JSON.stringify({
-    reportVersion: 1,
+    reportVersion: 2,
     reason,
     generatedAt: new Date().toISOString(),
     gameVersion: typeof GAME_VERSION === 'string' ? GAME_VERSION : 'unknown',
@@ -1839,6 +1844,7 @@ function buildPerfReport(reason) {
     canvas: { css: `${vw}x${vh}`, pixels: `${canvas.width}x${canvas.height}` },
     state: { buildings: Object.keys(G.buildings).length, effects: fx.length, pathNodes: G.player.path.length, saveChars: saveRaw.length },
     buildMenuInteractions: perfRecorder.buildMenuInteractions,
+    uiInteractions: perfRecorder.uiInteractions,
     resources: { count: resources.length, transferBytes: resources.reduce((n, r) => n + (r.transferSize || 0), 0) },
     longTaskSupported: perfRecorder.longTaskSupported,
     summary: {
@@ -2939,6 +2945,93 @@ panelEl.addEventListener('pointerdown', e => {
   const type = button.dataset.build || button.dataset.detailBuild;
   if (type) beginBuildMenuTap(type, button.id === 'bd-build' ? 'detail' : 'menu');
 });
+
+// すべての画面ボタンは pointerup でのみ確定する。pointerdown 即実行にはせず、
+// スクロール・ドラッグ・pointercancel・pointerup 未到達では既存の click を発火しない。
+const uiClickSuppressions = new WeakMap();
+function uiControlFrom(target) {
+  const control = target?.closest?.('button, [data-detail], #panel-back');
+  return control && !control.disabled ? control : null;
+}
+function uiControlName(control) {
+  if (control.id) return '#' + control.id;
+  if (control.dataset?.build) return 'build:' + control.dataset.build;
+  if (control.dataset?.detailBuild) return 'detail-build:' + control.dataset.detailBuild;
+  if (control.dataset?.labTech) return 'research:' + control.dataset.labTech;
+  if (control.dataset?.assemblerRecipe) return 'recipe:' + control.dataset.assemblerRecipe;
+  if (control.dataset?.detail) return 'detail:' + control.dataset.detail;
+  if (control.dataset?.tab) return 'build-tab:' + control.dataset.tab;
+  if (control.classList?.contains('close-x')) return 'panel-close';
+  return (control.textContent || control.tagName || 'control').trim().slice(0, 40);
+}
+function recordUiInteraction(phase, control, startedAt = null, extra = {}) {
+  const now = performance.now();
+  const entry = { at: Date.now(), phase, control: uiControlName(control), elapsedMs: startedAt === null ? null : roundPerf(now - startedAt), buildings: Object.keys(G.buildings).length, dirty, panel: openedPanel?.kind || null, buildMode, ...extra };
+  perfRecorder.uiInteractions.push(entry);
+  if (perfRecorder.uiInteractions.length > PERF_UI_INTERACTION_LIMIT) perfRecorder.uiInteractions.shift();
+  return entry;
+}
+function beginUiTap(control, event) {
+  const tap = { id: perfRecorder.nextUiTapId++, control, pointerId: event.pointerId, x: event.clientX, y: event.clientY, startedAt: performance.now(), timeoutId: null };
+  perfRecorder.pendingUiTaps.set(tap.pointerId, tap);
+  recordUiInteraction('pointerdown', control, tap.startedAt, { tapId: tap.id, pointerId: tap.pointerId });
+  return tap;
+}
+function clearUiTap(tap) {
+  if (!tap) return;
+  if (tap.timeoutId !== null) clearTimeout(tap.timeoutId);
+  perfRecorder.pendingUiTaps.delete(tap.pointerId);
+  try { tap.control.releasePointerCapture(tap.pointerId); } catch (err) { /* 対応環境差は無視 */ }
+}
+function cancelUiTap(event, phase = 'pointercancel') {
+  const tap = perfRecorder.pendingUiTaps.get(event.pointerId);
+  if (!tap) return false;
+  clearUiTap(tap);
+  recordUiInteraction(phase, tap.control, tap.startedAt, { tapId: tap.id, pointerId: tap.pointerId });
+  return true;
+}
+function suppressDuplicateNativeClick(event) {
+  const control = uiControlFrom(event.target);
+  const suppression = control && uiClickSuppressions.get(control);
+  if (!suppression || suppression.synthesizing || event.detail === 0 || performance.now() > suppression.until) return false;
+  event.preventDefault?.();
+  event.stopImmediatePropagation?.();
+  recordUiInteraction('native-click-suppressed', control, suppression.startedAt, { tapId: suppression.tapId });
+  return true;
+}
+function finishUiTap(event) {
+  const tap = perfRecorder.pendingUiTaps.get(event.pointerId);
+  if (!tap) return { activated: false, reason: 'missing' };
+  const dx = event.clientX - tap.x, dy = event.clientY - tap.y;
+  const movedPx = roundPerf(Math.hypot(dx, dy));
+  clearUiTap(tap);
+  if (movedPx > UI_TAP_MOVE_LIMIT_PX) {
+    recordUiInteraction('pointer-moved', tap.control, tap.startedAt, { tapId: tap.id, pointerId: tap.pointerId, movedPx });
+    return { activated: false, reason: 'moved', movedPx };
+  }
+  if (event.cancelable) event.preventDefault();
+  const suppression = { tapId: tap.id, startedAt: tap.startedAt, until: performance.now() + UI_NATIVE_CLICK_SUPPRESS_MS, synthesizing: true };
+  uiClickSuppressions.set(tap.control, suppression);
+  recordUiInteraction('pointerup-activated', tap.control, tap.startedAt, { tapId: tap.id, pointerId: tap.pointerId, movedPx });
+  tap.control.click();
+  suppression.synthesizing = false;
+  return { activated: true, reason: 'pointerup', movedPx };
+}
+document.addEventListener('pointerdown', e => {
+  if (e.button !== undefined && e.button !== 0) return;
+  const control = uiControlFrom(e.target);
+  if (!control) return;
+  const tap = beginUiTap(control, e);
+  try { control.setPointerCapture(e.pointerId); } catch (err) { /* 対応環境差は無視 */ }
+  tap.timeoutId = setTimeout(() => {
+    if (perfRecorder.pendingUiTaps.get(tap.pointerId) !== tap) return;
+    clearUiTap(tap);
+    recordUiInteraction('pointerup-missed', tap.control, tap.startedAt, { tapId: tap.id, pointerId: tap.pointerId });
+  }, UI_TAP_UP_TIMEOUT_MS);
+}, true);
+document.addEventListener('pointerup', e => { finishUiTap(e); }, true);
+document.addEventListener('pointercancel', e => { cancelUiTap(e); }, true);
+document.addEventListener('click', e => { suppressDuplicateNativeClick(e); }, true);
 
 function showPanel(html) {
   panelEl.innerHTML = html;
@@ -4491,7 +4584,7 @@ function showOfflineReport(seconds, before, after, offlineResult = null) {
 // バージョンチェック（インストール済みPWAにコード更新が反映されない対策）
 // デプロイのたびにGAME_VERSIONを上げると、開いたままのPWAに更新通知が出せる
 // =====================================================================
-const GAME_VERSION = '4.22.0';
+const GAME_VERSION = '4.23.0';
 async function checkForUpdate() {
   try {
     // cache無視で自身(index.html)を再取得し、埋め込まれたGAME_VERSION表記を比較する

@@ -109,8 +109,45 @@ const run = code => vm.runInContext(code, sandbox);
 const runAsync = code => vm.runInContext(`(async () => { ${code} })()`, sandbox);
 
 (async () => {
-assert.equal(run('GAME_VERSION'), '4.22.0');
+assert.equal(run('GAME_VERSION'), '4.23.0');
 assert.equal(run('SAVE_VERSION'), 9);
+
+const safeUiTapResult = run(`(() => {
+  perfRecorder.uiInteractions = [];
+  perfRecorder.pendingUiTaps = new Map();
+  const makeControl = () => ({
+    id: 'test-control', dataset: {}, textContent: 'test', clickCount: 0,
+    closest() { return this; }, setPointerCapture() {}, releasePointerCapture() {},
+    click() { this.clickCount++; },
+  });
+  const control = makeControl();
+  beginUiTap(control, { pointerId: 1, clientX: 10, clientY: 10 });
+  const normal = finishUiTap({ pointerId: 1, clientX: 14, clientY: 13, cancelable: true, preventDefault() {} });
+  const duplicate = { target: control, detail: 1, prevented: false, stopped: false, preventDefault() { this.prevented = true; }, stopImmediatePropagation() { this.stopped = true; } };
+  const duplicateSuppressed = suppressDuplicateNativeClick(duplicate);
+  const keyboard = { target: control, detail: 0, prevented: false, preventDefault() { this.prevented = true; }, stopImmediatePropagation() {} };
+  const keyboardAllowed = !suppressDuplicateNativeClick(keyboard);
+  const movedControl = makeControl();
+  beginUiTap(movedControl, { pointerId: 2, clientX: 0, clientY: 0 });
+  const moved = finishUiTap({ pointerId: 2, clientX: 13, clientY: 0, cancelable: true, preventDefault() {} });
+  const cancelledControl = makeControl();
+  beginUiTap(cancelledControl, { pointerId: 3, clientX: 0, clientY: 0 });
+  const cancelled = cancelUiTap({ pointerId: 3 });
+  return { normal, normalClicks: control.clickCount, duplicateSuppressed, duplicatePrevented: duplicate.prevented && duplicate.stopped, keyboardAllowed, moved, movedClicks: movedControl.clickCount, cancelled, cancelledClicks: cancelledControl.clickCount, pending: perfRecorder.pendingUiTaps.size };
+})()`);
+assert.equal(safeUiTapResult.normal.activated, true);
+assert.equal(safeUiTapResult.normalClicks, 1);
+assert.equal(safeUiTapResult.duplicateSuppressed, true);
+assert.equal(safeUiTapResult.duplicatePrevented, true);
+assert.equal(safeUiTapResult.keyboardAllowed, true);
+assert.equal(safeUiTapResult.moved.reason, 'moved');
+assert.equal(safeUiTapResult.movedClicks, 0);
+assert.equal(safeUiTapResult.cancelled, true);
+assert.equal(safeUiTapResult.cancelledClicks, 0);
+assert.equal(safeUiTapResult.pending, 0);
+assert.match(html, /touch-action:pan-y/);
+assert.match(html, /pointerup-activated/);
+assert.match(html, /native-click-suppressed/);
 
 const researchQuestFlow = run(`(() => {
   G.cleared = true;
