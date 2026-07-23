@@ -252,6 +252,7 @@ const CONFIG = {
   CHEST_CAP: 60,         // 保管箱の容量（合計）
   ANTENNA_RANGE: 5,      // アンテナを設置できる拠点からの距離
   AUTOSAVE_SEC: 10,
+  TARGET_FPS: 30, // 工場ゲームの操作性を保ちつつ、iPhoneの連続描画負荷を抑える
   BATTERY_UPGRADE_COST: { circuit: 3, crystal: 2 },  // バッテリー拡張の材料（1回のみ）
   BATTERY_UPGRADE_MULT: 1.5,                          // バッテリー拡張後の最大容量倍率
   OFFLINE_MAX_HOURS: 4,        // オフライン生産を計算する上限時間
@@ -1842,6 +1843,7 @@ function buildPerfReport(reason) {
     page: { standalone: matchMedia('(display-mode: standalone)').matches, hidden: document.hidden, url: location.href },
     device: { userAgent: navigator.userAgent, screen: `${screen.width}x${screen.height}`, dpr: devicePixelRatio },
     canvas: { css: `${vw}x${vh}`, pixels: `${canvas.width}x${canvas.height}` },
+    frameCap: CONFIG.TARGET_FPS,
     state: { buildings: Object.keys(G.buildings).length, effects: fx.length, pathNodes: G.player.path.length, saveChars: saveRaw.length },
     buildMenuInteractions: perfRecorder.buildMenuInteractions,
     uiInteractions: perfRecorder.uiInteractions,
@@ -4610,7 +4612,7 @@ function showOfflineReport(seconds, before, after, offlineResult = null) {
 // バージョンチェック（インストール済みPWAにコード更新が反映されない対策）
 // デプロイのたびにGAME_VERSIONを上げると、開いたままのPWAに更新通知が出せる
 // =====================================================================
-const GAME_VERSION = '4.24.0';
+const GAME_VERSION = '4.25.0';
 async function checkForUpdate() {
   try {
     // cache無視で自身(index.html)を再取得し、埋め込まれたGAME_VERSION表記を比較する
@@ -4670,8 +4672,15 @@ async function boot() {
   updateBuildModeUI();
 
   let last = performance.now();
+  const frameIntervalMs = 1000 / CONFIG.TARGET_FPS;
   function frame(now) {
     const rawGapMs = now - last;
+    // タップ処理はイベントで即時に行う。更新と全面Canvas描画だけを30fpsへ制限して、
+    // iPhoneホーム画面版での継続的な画面・GPU負荷を半分にする。
+    if (rawGapMs + 0.5 < frameIntervalMs) {
+      requestAnimationFrame(frame);
+      return;
+    }
     const dt = Math.min(0.1, rawGapMs / 1000);
     last = now;
     const frameStarted = performance.now();
