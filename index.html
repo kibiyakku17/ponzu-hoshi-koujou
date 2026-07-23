@@ -464,7 +464,7 @@ const ANALYSIS_LOG_ORDER = ['starCrystal', 'starCrystalRefined', 'starCrystalCor
 const ANALYSIS_LOGS = {
   starCrystal:        '【解析ログ】未知の構造を検出。自然結晶とは一致しない。継続解析を推奨。',
   starCrystalRefined: '【解析ログ】通常の結晶構造と一致しない配列を確認。',
-  starCrystalCore:    '【解析ログ】過去の地質変動の記録らしき情報を検出。',
+  starCrystalCore:    '【解析ログ】過去の地質変動の記録らしき情報を検出。\n🌟 ぽん太を強化できるようになった。作業台を開こう。',
   arcCore:             '【解析ログ】人工構造物の設計データと思われる情報を検出。',
 };
 
@@ -4612,7 +4612,7 @@ function showOfflineReport(seconds, before, after, offlineResult = null) {
 // バージョンチェック（インストール済みPWAにコード更新が反映されない対策）
 // デプロイのたびにGAME_VERSIONを上げると、開いたままのPWAに更新通知が出せる
 // =====================================================================
-const GAME_VERSION = '4.25.0';
+const GAME_VERSION = '4.26.0';
 async function checkForUpdate() {
   try {
     // cache無視で自身(index.html)を再取得し、埋め込まれたGAME_VERSION表記を比較する

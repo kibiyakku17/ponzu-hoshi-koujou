@@ -109,10 +109,11 @@ const run = code => vm.runInContext(code, sandbox);
 const runAsync = code => vm.runInContext(`(async () => { ${code} })()`, sandbox);
 
 (async () => {
-assert.equal(run('GAME_VERSION'), '4.25.0');
+assert.equal(run('GAME_VERSION'), '4.26.0');
 assert.equal(run('SAVE_VERSION'), 9);
 assert.equal(run('CONFIG.TARGET_FPS'), 30);
 assert.match(html, /rawGapMs \+ 0\.5 < frameIntervalMs/);
+assert.match(html, /ぽん太を強化できるようになった。作業台を開こう/);
 
 const safeUiTapResult = run(`(() => {
   perfRecorder.uiInteractions = [];
