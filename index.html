@@ -410,12 +410,65 @@ const EN_TEXT = {
   'セーブデータを削除できませんでした。ブラウザの保存設定を確認してね': 'Could not delete save data. Check your browser storage settings.',
   'セーブできませんでした。端末の空き容量とブラウザの保存設定を確認してね': 'Could not save. Check device storage and browser storage settings.'
 };
-const EN_TEXT_ENTRIES = Object.entries(EN_TEXT).sort((a, b) => b[0].length - a[0].length);
+Object.assign(EN_TEXT, {
+  '石': 'Stone',
+  '🎉 全ステップ完了！': '🎉 All steps complete!',
+  '🎉 すべての目標を達成した！自由に工場をひろげよう': '🎉 All objectives complete! Keep expanding your factory.',
+  '⚡ 電力供給中': '⚡ Power supplied',
+  '⚡ 停電中（電力が届いていない、または不足している）': '⚡ No power (out of range or insufficient supply)',
+  '鉱脈の上に置いて自動採掘': 'Place on an ore vein to mine automatically.',
+  '鉱脈の上に設置。数秒ごとに自動で採掘し、隣の保管箱・精錬炉へ渡す。': 'Place on an ore vein. Mines automatically and passes items to adjacent chests or furnaces.',
+  '鉱石を鉄板・石ブロックへ加工': 'Process ore into iron plates and stone blocks.',
+  '鉄鉱石→鉄板、石→石ブロックを自動で加工する。': 'Automatically processes iron ore into iron plates and stone into stone blocks.',
+  'アイテムをしまえる箱': 'A chest for storing items.',
+  'アイテムをしまえる箱。採掘機の隣に置くと自動で溜まる。': 'Stores items. Place it beside a miner to collect output automatically.',
+  '手動クラフト・各種強化の拠点': 'Manual crafting and upgrades.',
+  '手動クラフト用。鉄板から部品を作れる。': 'Craft manually. Make parts from iron plates.',
+  '短距離の救難信号を送る': 'Send a short-range distress signal.',
+  '拠点の近くに設置して起動すると、最初の救難信号を送れる。救難通信完成への第一歩。': 'Build near your base and activate it to send the first distress signal—the first step toward rescue.',
+  '隣の設備/ベルト間で受け渡し': 'Move items between adjacent machines and belts.',
+  '後ろの設備/ベルトから受け取り、前の設備/ベルトへ渡す（数秒に1個）。設置後タップで90度回転。': 'Takes items from behind and passes them forward, one every few seconds. Tap after placement to rotate 90°.',
+  'アイテムを進行方向へ運ぶ': 'Move items in its direction.',
+  '乗ったアイテムを進行方向へ運ぶ。設備への出し入れはアーム経由。設置後タップで90度回転。': 'Moves items forward. Machines exchange items through arms. Tap after placement to rotate 90°.',
+  '位置を知らせ、救難通信を完成させる': 'Broadcast your position and complete the rescue signal.',
+  'アンテナ起動後に位置と誘導信号を確立する。上位発電機と十分な余剰電力があれば、最大出力で救難通信を完成できる。': 'After the antenna activates, establish location and guidance signals. An advanced generator with enough reserve power can complete the rescue signal.',
+  'レシピを選んで自動クラフト': 'Choose a recipe and craft automatically.',
+  'レシピを選んで自動クラフト。材料は隣接/アーム経由で搬入、完成品はアームで搬出。': 'Choose a recipe for automatic crafting. Materials enter from adjacent machines or arms; arms take finished items out.',
+  '研究パックを消費して研究を進行': 'Consume research packs to progress research.',
+  '研究パックを消費して研究を進める。研究メニューから対象を選ぶ。': 'Consume research packs to advance research. Choose a topic from the research menu.',
+  'ベルト上で2方向に交互振り分け': 'Alternately split a belt into two directions.',
+  'ベルト上で使う簡易スプリッタ。受け取ったアイテムを2方向へ交互に振り分ける。設置後タップで90度回転。': 'A simple belt splitter. Alternates received items between two directions. Tap after placement to rotate 90°.',
+  'ベルトから直接受け入れる保管箱': 'A chest that accepts items directly from belts.',
+  'ベルトから直接受け入れ、隣接する空きベルトへ自動で搬出もできる保管箱の上位版。容量は通常箱と同じ。': 'An upgraded chest that accepts items from belts and can feed adjacent empty belts. Capacity is the same as a normal chest.',
+  'ベルトの2倍速版': 'A belt that moves twice as fast.',
+  '通常のベルトの2倍の速度で運ぶ。設置後タップで90度回転。ドラッグで連続設置。': 'Moves items twice as fast as a normal belt. Tap after placement to rotate 90°. Drag to place a line.',
+  '採掘機の上位版。範囲5×5・速度1.5倍': 'An upgraded miner with a 5×5 range and 1.5× speed.',
+  '採掘範囲5×5、速度1.5倍の上位採掘機。': 'An upgraded miner with a 5×5 mining range and 1.5× speed.',
+  'アームの2倍速版': 'An arm that moves twice as fast.',
+  '通常のアームの2倍の速度で動く。設置後タップで90度回転。': 'Moves twice as fast as a normal arm. Tap after placement to rotate 90°.',
+  '指定した1種類だけを掴むアーム': 'An arm that picks up only one chosen item type.',
+  '指定した1種類のアイテムだけを掴む。それ以外は素通りさせる。設置後タップで対象アイテムと向きを設定。': 'Picks up only the chosen item type and lets everything else pass. Tap after placement to set the item and direction.',
+  'エネルギー結晶で発電（無線送電）': 'Generate wireless power with energy crystals.',
+  'エネルギー結晶を消費して周囲に電力を送る（無線・半径15マス）。研究不要ですぐ作れる。': 'Consumes energy crystals to send wireless power within a 15-tile radius. Available immediately without research.',
+  '電力の余剰を蓄え不足時に補う': 'Store surplus power and cover shortages.',
+  '電力網に接続し、供給が余っている時に自動で充電、不足している時は放電して一時的な停電を防ぐ（発電量そのものは増えない）。': 'Connects to a power network. Charges from surplus supply and discharges during shortages to prevent temporary outages; it does not generate power.',
+  '電力網を中継して届く範囲を広げる': 'Relay power networks to extend their range.',
+  '発電機または他の中継塔から半径15マス以内に置くと、そこからさらに半径15マスへ電力を中継する。電力は消費しない。': 'Place within 15 tiles of a generator or another relay tower to relay power another 15 tiles. It consumes no power.',
+  'アークコアで発電する上位発電機': 'An advanced generator powered by arc cores.',
+  'アークコアを消費し、小型発電機より大幅に高い電力を発電する（無線・半径28マス）。第4エリアのゲート図面が必要。': 'Consumes arc cores to generate far more wireless power than a small generator, within a 28-tile radius. Requires the Area 4 gate blueprint.'
+});
+function t(ja, en) { return language === 'en' ? en : ja; }
 function localizeText(value) {
   if (language !== 'en' || typeof value !== 'string') return value;
-  let translated = value;
-  for (const [ja, en] of EN_TEXT_ENTRIES) translated = translated.split(ja).join(en);
-  return translated;
+  return EN_TEXT[value] || value;
+}
+function itemName(key) {
+  const item = ITEMS[key];
+  return item ? localizeText(item.name) : String(key);
+}
+function buildingName(type) {
+  const building = BUILDINGS[type];
+  return building ? localizeText(building.name) : String(type);
 }
 function localizeDocument(root = document) {
   if (language !== 'en') return;
@@ -995,11 +1048,11 @@ function tryMine(x, y) {
   trackMineTapStreak(x, y);
   G.ore[idx(x, y)] -= CONFIG.MINE_PER_TAP;
   invAdd(G.player.inv, item, CONFIG.MINE_PER_TAP);
-  fx.push({ type: 'pop', x, y, txt: '+1 ' + ITEMS[item].name, t: 0 });
+  fx.push({ type: 'pop', x, y, txt: '+1 ' + itemName(item), t: 0 });
   sfxMine();
   if (G.ore[idx(x, y)] <= 0) {
     G.tiles[idx(x, y)] = T_PLAIN;
-    toast(ITEMS[item].name + 'の鉱脈を掘りつくした');
+    toast(itemName(item) + 'の鉱脈を掘りつくした');
     sfxOreDepleted();
   }
   markDirty();
@@ -1087,7 +1140,7 @@ function payCost(cost) { for (const [k, v] of Object.entries(cost)) invAdd(G.pla
 function costText(cost) {
   return Object.entries(cost).map(([k, v]) => {
     const ok = invCount(G.player.inv, k) >= v;
-    return `<span class="${ok ? '' : 'ng'}">${ITEMS[k].name}×${v}</span>`;
+    return `<span class="${ok ? '' : 'ng'}">${itemName(k)}×${v}</span>`;
   }).join('　');
 }
 
@@ -1107,7 +1160,7 @@ function tryPlace(type, x, y, initDir) {
       if (inMap(nx, ny) && ORE_ITEM[G.tiles[idx(nx, ny)]] && G.ore[idx(nx, ny)] > 0) oreTypes.add(ORE_ITEM[G.tiles[idx(nx, ny)]]);
     }
     if (oreTypes.size === 0) { toast(`採掘機は鉱脈から${R}マス以内に置く`, 'warn'); return; }
-    if (oreTypes.size >= 2) minerMixedOreNames = [...oreTypes].map(k => ITEMS[k].name).join('と');
+    if (oreTypes.size >= 2) minerMixedOreNames = [...oreTypes].map(k => itemName(k)).join('と');
   } else {
     if (t === T_ROCK) { toast('岩の上には置けない', 'warn'); return; }
     if (ORE_ITEM[t]) { toast('鉱脈の上に置けるのは採掘機だけ', 'warn'); return; }
@@ -1140,7 +1193,7 @@ function tryPlace(type, x, y, initDir) {
   placePreview = null;
   updateBuildModeUI();
   if (minerMixedOreNames) toast(`⚠️ 設置した！この範囲には${minerMixedOreNames}の鉱脈が混在しています（ラインが混ざるかも）`, 'warn', 4200);
-  else toast(BUILDINGS[type].name + 'を設置した！');
+  else toast(buildingName(type) + 'を設置した！');
   sfxPlace();
   markDirty(); scheduleSave();
 }
@@ -1156,7 +1209,7 @@ function removeBuilding(b) {
   delete G.buildings[bkey(b.x, b.y)];
   markPowerTopologyDirty();
   closePanel();
-  toast(BUILDINGS[b.type].name + 'を撤去した（材料は返却）');
+  toast(buildingName(b.type) + 'を撤去した（材料は返却）');
   markDirty(); scheduleSave();
 }
 function payCostRefund(cost) { for (const [k, v] of Object.entries(cost)) invAdd(G.player.inv, k, v); }
@@ -1175,9 +1228,9 @@ function upgradeBuilding(b) {
   const cost = CONFIG.UPGRADE_COSTS[nextType];
   if (!cost || !canAfford(cost)) return;
   payCost(cost);
-  const oldName = BUILDINGS[b.type].name;
+  const oldName = buildingName(b.type);
   b.type = nextType;   // 向き・バッファ・搬送中アイテム等は同じプロパティ名のまま引き継がれる
-  toast(`⬆️ ${oldName}を${BUILDINGS[nextType].name}にアップグレードした！`);
+  toast(`⬆️ ${oldName}を${buildingName(nextType)}にアップグレードした！`);
   sfxResearchDone();
   markDirty(); scheduleSave();
 }
@@ -1191,7 +1244,7 @@ function undoLastPlacement() {
   // updateBuildModeUIは末尾でbuildMode中のヒントtoastを出すため、それより後に呼んで
   // 「元に戻した」のフィードバックが上書きされて消えないようにする
   updateBuildModeUI();
-  toast(BUILDINGS[type].name + 'を元に戻した' + (placementHistory.length ? `（あと${placementHistory.length}件戻せる）` : ''));
+  toast(buildingName(type) + 'を元に戻した' + (placementHistory.length ? `（あと${placementHistory.length}件戻せる）` : ''));
 }
 
 // =====================================================================
@@ -1570,7 +1623,7 @@ function visibleRecipes() {
 // レシピ材料の表示テキスト（'full'は通常のcostText、それ以外は未入手の材料だけ？？？にする）
 function recipeMaterialsText(r, vis) {
   if (vis === 'full') return costText(r.in);
-  return Object.entries(r.in).map(([k, v]) => G.discovered[k] ? `${ITEMS[k].name}×${v}` : '？？？').join('　');
+  return Object.entries(r.in).map(([k, v]) => G.discovered[k] ? `${itemName(k)}×${v}` : '？？？').join('　');
 }
 
 function tickAssembler(b, dt) {
@@ -1991,7 +2044,7 @@ function syncDiscovered() {
         toast(ANALYSIS_LOGS[k], undefined, 5000, true);
         sfxAnalysisLog();
       } else {
-        toast(`${ITEMS[k].name}を発見！新しいレシピのヒントが増えた`);
+        toast(`${itemName(k)}を発見！新しいレシピのヒントが増えた`);
       }
     }
   }
@@ -2139,6 +2192,41 @@ const QUESTS_POST = [
   { id: 'rescue', check: () => G.rescueCompleted,
     text: '誘導ビーコンを上位発電機と同じ電力網につなぎ、余剰電力20以上で<b>最大出力の救難通信</b>を送ろう' },
 ];
+const QUEST_TEXT_EN = {
+  gather: 'Gather <b>Iron Ore</b> and <b>5 Stone</b> by tapping ore veins.',
+  furnace: 'Build a <b>Furnace</b> (🔨 Build → 5 Stone).',
+  plate: 'Put <b>Iron Ore</b> into a furnace to make <b>Iron Plates</b>.',
+  stoneBlock: 'Put <b>Stone</b> into a furnace to make <b>Stone Blocks</b>.',
+  workbench: 'Build a <b>Workbench</b> (4 Stone + 2 Iron Plates).',
+  part: 'Use the workbench to craft <b>Parts</b> (2 Iron Plates).',
+  miner: 'Place a <b>Miner</b> on an ore vein to automate mining (4 Iron Plates + 2 Stone Blocks).',
+  antenna: 'Build a <b>Communications Antenna</b> near your base (5 Parts + 5 Stone Blocks + 3 Energy Crystals).',
+  activate: 'Tap the antenna to activate it and establish the <b>First Signal</b>.',
+  gate: 'Repair the eastern <b>Broken Gate</b> to enter Area 2 (10 Parts + 10 Stone Blocks).',
+  copper: 'Gather <b>Copper Ore</b> in Area 2 and make <b>Copper Wire</b> in a furnace.',
+  circuit: 'Craft a <b>Circuit</b> at the workbench (2 Copper Wire + 1 Iron Plate).',
+  battery: 'Upgrade your <b>Battery</b> at the workbench (3 Circuits + 2 Energy Crystals).',
+  beacon: 'Build and activate the <b>Guidance Beacon</b> to establish location and guidance signals (5 Circuits + 10 Parts + 5 Energy Crystals).',
+  researchLab: 'Build a <b>Lab</b> (10 Iron Plates + 5 Circuits).',
+  researchPack1Setup: 'Build an <b>Assembler</b> and select the <b>Research Pack I</b> recipe.',
+  splitterStart: 'Select <b>Splitter</b> in the lab, add Research Pack I, and start research.',
+  splitterDone: 'Complete <b>Splitter</b> research. Building it is optional for now.',
+  researchPack2: 'Craft <b>Research Pack II</b> (1 Circuit + 1 Energy Crystal).',
+  gate2research: 'Research the <b>Area 3 Gate Blueprint</b> in the lab.',
+  gate2: 'Repair the next eastern <b>Broken Gate</b> to enter Area 3 (20 Parts + 20 Stone Blocks + 10 Circuits).',
+  gate3research: 'Research the <b>Area 4 Gate Blueprint</b> in the lab.',
+  gate3: 'Repair the next eastern <b>Broken Gate</b> to enter Area 4 (30 Parts + 30 Stone Blocks + 20 Circuits).',
+  starCrystalCore: 'Gather <b>Star Crystals</b> in Area 4, refine them in a furnace, then craft a <b>Star Crystal Core</b> in an assembler.',
+  advGenerator: 'Craft an <b>Arc Core</b> from Star Crystal Cores and build an <b>Advanced Generator</b> to solve the power shortage.',
+  rescue: 'Connect the Guidance Beacon to the same network as an Advanced Generator and send the <b>Maximum-Power Rescue Signal</b> with at least 20 reserve power.'
+};
+function questText(q) {
+  if (language === 'en') {
+    if (q.id === 'tier1Research') { const p = researchTierProgress(1); return `Complete all <b>Tier 1</b> research (${p.done}/${p.total} complete).`; }
+    if (QUEST_TEXT_EN[q.id]) return QUEST_TEXT_EN[q.id];
+  }
+  return typeof q.text === 'function' ? q.text() : q.text;
+}
 function hasBuilding(type) { return Object.values(G.buildings).some(b => b.type === type); }
 function buildingOfType(type) { return Object.values(G.buildings).find(b => b.type === type); }
 function everHad(item) { return !!G.flags['had_' + item]; }
@@ -2181,7 +2269,7 @@ function hasResearchPack2Evidence() {
   }
   return false;
 }
-function questText(q) { return typeof q.text === 'function' ? q.text() : q.text; }
+
 function updateFlags() {
   for (const k of ['ironPlate', 'stoneBlock', 'part', 'copperWire', 'circuit', 'researchPack2', 'starCrystalCore']) {
     if (invCount(G.player.inv, k) > 0) {
@@ -2836,7 +2924,7 @@ function commitBeltDrag(tiles, beltType) {
     placed++;
   }
   if (placed > 0) { updateBuildModeUI(); markDirty(); scheduleSave(); }
-  toast(placed > 0 ? `${BUILDINGS[beltType].name}を${placed}個設置した` : '設置できなかった（岩・鉱脈・設備・資材不足）', placed > 0 ? undefined : 'warn');
+  toast(placed > 0 ? `${buildingName(beltType)}を${placed}個設置した` : '設置できなかった（岩・鉱脈・設備・資材不足）', placed > 0 ? undefined : 'warn');
 }
 // ドラッグで拾った経路上の設備をまとめて撤去（拠点・ゲートはスキップして継続）
 function commitEraseDrag(tiles) {
@@ -2981,11 +3069,11 @@ function updateBuildModeUI() {
   // 誤設置に気づいた時、設置モードを抜けずにその場で取り消せるボタン。押すたびに1件ずつさかのぼれる（Phase4.6③）
   const undoBtn = document.getElementById('btn-undo-place');
   undoBtn.style.display = (buildMode && !previewing && placementHistory.length) ? 'block' : 'none';
-  undoBtn.textContent = placementHistory.length > 1 ? `↩️ 元に戻す（${placementHistory.length}）` : '↩️ 元に戻す';
+  undoBtn.textContent = placementHistory.length > 1 ? t('↩️ 元に戻す（' + placementHistory.length + '）', '↩️ Undo (' + placementHistory.length + ')') : t('↩️ 元に戻す', '↩️ Undo');
   const cancelBtn = document.getElementById('cancel-build');
   cancelBtn.style.display = (active || previewing) ? 'block' : 'none';
-  cancelBtn.textContent = eraseMode ? '✕ 撤去終了' : '✕ 設置モードを終了';
-  if (buildMode && !previewing) toast(BUILDINGS[buildMode].name + 'を置く場所をタップ' + (buildMode === 'belt' ? '（ドラッグで連続設置）' : ''));
+  cancelBtn.textContent = eraseMode ? t('✕ 撤去終了', '✕ End removal') : t('✕ 設置モードを終了', '✕ End build mode');
+  if (buildMode && !previewing) toast(buildingName(buildMode) + 'を置く場所をタップ' + (buildMode === 'belt' ? '（ドラッグで連続設置）' : ''));
   else if (previewing) toast('向きを確認 → 同じ場所タップか🔄で回転、✅で設置確定');
 }
 
@@ -3031,7 +3119,7 @@ function renderInvBar() {
   const inv = G.player.inv;
   const keys = Object.keys(ITEMS).filter(k => invCount(inv, k) > 0);
   el.innerHTML = keys.length
-    ? keys.map(k => `<span class="inv-chip"><span class="dot" style="background:${ITEMS[k].color}"></span>${ITEMS[k].name} <b>${inv[k]}</b></span>`).join('')
+    ? keys.map(k => `<span class="inv-chip"><span class="dot" style="background:${ITEMS[k].color}"></span>${itemName(k)} <b>${inv[k]}</b></span>`).join('')
     : '<span class="inv-chip" style="color:var(--sub)">もちもの：なし（鉱脈をタップで採掘）</span>';
 }
 
@@ -3237,12 +3325,14 @@ function isNewBuilding(type) {
   const gated = !!BUILDING_RESEARCH_GATE[type] || type === 'beacon';
   return gated && buildingUnlocked(type) && !G.buildMenuSeen[type];
 }
+const BUILD_CATEGORY_EN = { produce: '⛏️ Production', transport: '➡️ Logistics', power: '⚡ Power', special: '📡 Special' };
+function buildCategoryName(category) { return language === 'en' ? BUILD_CATEGORY_EN[category.id] : category.name; }
 let buildMenuTab = null;
 function openBuildMenu(keep) {
   if (!buildMenuTab) buildMenuTab = BUILD_CATEGORIES[0].id;
   const tabsHtml = BUILD_CATEGORIES.map(c => {
     const n = c.items.filter(buildingUnlocked).length;
-    return `<button class="btn small ${buildMenuTab === c.id ? 'primary' : ''}" data-tab="${c.id}" style="margin:2px 4px 2px 0">${c.name}（${n}）</button>`;
+    return `<button class="btn small ${buildMenuTab === c.id ? 'primary' : ''}" data-tab="${c.id}" style="margin:2px 4px 2px 0">${buildCategoryName(c)} (${n})</button>`;
   }).join('');
   const cat = BUILD_CATEGORIES.find(c => c.id === buildMenuTab) || BUILD_CATEGORIES[0];
   const list = cat.items.filter(buildingUnlocked);
@@ -3250,13 +3340,13 @@ function openBuildMenu(keep) {
     const ok = canAfford(CONFIG.COSTS[t]);
     const badges = (isNewBuilding(t) ? '<span class="bm-badge new">NEW</span>' : '') + (ok ? '<span class="bm-badge ok">作成可能</span>' : '');
     return `<div class="row">
-      <div class="grow bm-tap" data-detail="${t}"><b>${BUILDINGS[t].icon} ${BUILDINGS[t].name}</b>${badges}<br>
+      <div class="grow bm-tap" data-detail="${t}"><b>${BUILDINGS[t].icon} ${buildingName(t)}</b>${badges}<br>
         <span class="cost">${costText(CONFIG.COSTS[t])}</span><br>
         <span class="cost">${BUILDINGS[t].short}</span></div>
       <button class="btn ${ok ? 'primary' : ''}" data-build="${t}" ${ok ? '' : 'disabled'}>設置</button>
     </div>`;
   }).join('') : '<div class="row"><span class="cost">このカテゴリにはまだ何もない（研究で解禁されるものがあります）</span></div>';
-  showPanel(`<h2>🔨 建設メニュー<button class="close-x">✕</button></h2>
+  showPanel(`<h2>${t('🔨 建設メニュー', '🔨 Build menu')}<button class="close-x">✕</button></h2>
     <div style="display:flex;flex-wrap:wrap;margin-bottom:8px">${tabsHtml}</div>
     ${rows}`);
   openedPanel = { kind: 'build' };
@@ -3295,14 +3385,14 @@ function openBuilding(b, keep) {
   openedPanel = { kind: 'building', b };
   const inv = G.player.inv;
   let html = '';
-  const removeBtn = `<div style="margin-top:14px"><button class="btn danger" id="pb-remove">🗑 撤去する（材料は返却）</button></div>`;
+  const removeBtn = `<div style="margin-top:14px"><button class="btn danger" id="pb-remove">${t('🗑 撤去する（材料は返却）', '🗑 Remove (materials returned)')}</button></div>`;
   // その場アップグレード（Phase4.15②）：miner/belt/armのみ対象。研究で解禁済み、かつ対象タイプに
   // upgradesToがある場合だけボタンを出す（minerMk2/fastBelt/fastArm自身はupgradesToが無いため出ない）
   const upgradeTarget = BUILDINGS[b.type] && BUILDINGS[b.type].upgradesTo;
   const upgradeBtn = canUpgrade(b) ? (() => {
     const cost = CONFIG.UPGRADE_COSTS[upgradeTarget];
     const ok = canAfford(cost);
-    return `<div style="margin-top:10px"><button class="btn ${ok ? 'primary' : ''}" id="pb-upgrade" ${ok ? '' : 'disabled'}>⬆️ ${BUILDINGS[upgradeTarget].name}にアップグレード（${costText(cost)}）</button></div>`;
+    return `<div style="margin-top:10px"><button class="btn ${ok ? 'primary' : ''}" id="pb-upgrade" ${ok ? '' : 'disabled'}>⬆️ ${buildingName(upgradeTarget)}にアップグレード（${costText(cost)}）</button></div>`;
   })() : '';
 
   if (b.type === 'base') {
@@ -3317,12 +3407,12 @@ function openBuilding(b, keep) {
     const bufTotal = invTotal(b.buffer);
     const R = minerRadius(b);
     const veinSummary = veins.length
-      ? veins.map(v => ITEMS[v.item].name + '（残' + Math.ceil(G.ore[idx(v.x, v.y)] / CONFIG.ORE_VEIN_MULT) + '）').join('　')
+      ? veins.map(v => itemName(v.item) + '（残' + Math.ceil(G.ore[idx(v.x, v.y)] / CONFIG.ORE_VEIN_MULT) + '）').join('　')
       : null;
     html = `<h2>${b.type === 'minerMk2' ? '⛏️ 採掘機Mk2' : '⛏️ 採掘機'}（中心${R * 2 + 1}×${R * 2 + 1}）<button class="close-x">✕</button></h2>
       <div class="row"><div class="grow">${veinSummary ? '採掘中：' + veinSummary : '⚠️ 範囲内の鉱脈をすべて掘りつくした（停止中）'}</div></div>
       <div class="row"><div class="grow">内部バッファ：${bufTotal}/${CONFIG.MINER_BUFFER}<br>
-        <span class="cost">${Object.entries(b.buffer).map(([k, v]) => ITEMS[k].name + '×' + v).join('　') || 'からっぽ'}</span></div>
+        <span class="cost">${Object.entries(b.buffer).map(([k, v]) => itemName(k) + '×' + v).join('　') || 'からっぽ'}</span></div>
         <button class="btn primary" id="pb-collect" ${bufTotal ? '' : 'disabled'}>回収する</button></div>
       <div class="row"><span class="cost">隣接の保管箱・精錬炉へ自動受け渡し。アームで離れた設備にも搬送できるよ</span></div>` + upgradeBtn + removeBtn;
   }
@@ -3330,50 +3420,49 @@ function openBuilding(b, keep) {
     const prog = b.job ? Math.round(b.progress / CONFIG.SMELT_TIME * 100) : 0;
     const inRow = (item) => {
       const have = invCount(inv, item), cur = invCount(b.input, item);
-      return `<div class="row"><div class="grow">${ITEMS[item].name}（炉内 ${cur}/${CONFIG.FURNACE_IN_CAP}・所持 ${have}）</div>
-        <button class="btn small" data-in="${item}" data-n="1" ${have ? '' : 'disabled'}>入れる</button>
+      return `<div class="row"><div class="grow">${itemName(item)} ${t(`（炉内 ${cur}/${CONFIG.FURNACE_IN_CAP}・所持 ${have}）`, `(Furnace ${cur}/${CONFIG.FURNACE_IN_CAP} • You have ${have})`)}</div>
+        <button class="btn small" data-in="${item}" data-n="1" ${have ? '' : 'disabled'}>${t('入れる', 'Put')}</button>
         <button class="btn small" data-in="${item}" data-n="10" ${have ? '' : 'disabled'}>×10</button></div>`;
     };
     const outTotal = invTotal(b.output);
-    html = `<h2>🔥 精錬炉<button class="close-x">✕</button></h2>
-      <h3>投入（鉄鉱石→鉄板／石→石ブロック／銅鉱石→銅線）</h3>
+    html = `<h2>🔥 ${buildingName('furnace')}<button class="close-x">✕</button></h2>
+      <h3>${t('投入（鉄鉱石→鉄板／石→石ブロック／銅鉱石→銅線）', 'Input (Iron Ore → Iron Plate / Stone → Stone Block / Copper Ore → Copper Wire)')}</h3>
       ${inRow('ironOre')}${inRow('stone')}${inRow('copperOre')}
-      <h3>加工中 ${b.job ? '：' + ITEMS[b.job].name : ''}</h3>
+      <h3>${t('加工中', 'Processing')}${b.job ? ': ' + itemName(b.job) : ''}</h3>
       <div class="progress"><i style="width:${prog}%"></i></div>
-      <h3>完成品</h3>
-      <div class="row"><div class="grow">${Object.entries(b.output).map(([k, v]) => ITEMS[k].name + '×' + v).join('　') || 'まだない'}</div>
-        <button class="btn primary" id="pb-takeout" ${outTotal ? '' : 'disabled'}>取り出す</button></div>` + removeBtn;
-  }
-  else if (b.type === 'assembler') {
+      <h3>${t('完成品', 'Output')}</h3>
+      <div class="row"><div class="grow">${Object.entries(b.output).map(([k, v]) => itemName(k) + '×' + v).join('　') || t('まだない', 'None yet')}</div>
+        <button class="btn primary" id="pb-takeout" ${outTotal ? '' : 'disabled'}>${t('取り出す', 'Collect output')}</button></div>` + removeBtn;
+  }  else if (b.type === 'assembler') {
     const recipe = assemblerRecipe(b);
     const prog = b.job ? Math.round(b.progress / CONFIG.ASSEMBLER_TIME * 100) : 0;
     const recipeRows = visibleRecipes().map(({ r, vis }) => {
       if (vis === 'partial') {
         return `<div class="row" style="opacity:.6">
           <span class="dot" style="background:var(--line)"></span>
-          <div class="grow"><b>？？？</b><br><span class="cost">材料：${recipeMaterialsText(r, vis)}</span></div>
+          <div class="grow"><b>？？？</b><br><span class="cost">${t('材料：', 'Materials: ')}${recipeMaterialsText(r, vis)}</span></div>
         </div>`;
       }
       return `<div class="row">
         <span class="dot" style="background:${ITEMS[r.out].color}"></span>
-        <div class="grow"><b>${r.name}</b>×${r.outN}<br><span class="cost">材料：${recipeMaterialsText(r, vis)}</span></div>
+        <div class="grow"><b>${itemName(r.out)}</b>×${r.outN}<br><span class="cost">${t('材料：', 'Materials: ')}${recipeMaterialsText(r, vis)}</span></div>
         <button class="btn ${b.recipeOut === r.out ? 'primary' : ''}" data-assembler-recipe="${r.out}">${b.recipeOut === r.out ? '選択中' : '選ぶ'}</button>
       </div>`;
     }).join('');
     const inRows = recipe ? Object.keys(recipe.in).map(item => {
       const have = invCount(inv, item), cur = invCount(b.input, item);
-      return `<div class="row"><div class="grow">${ITEMS[item].name}（機内 ${cur}/${CONFIG.ASSEMBLER_IN_CAP}・所持 ${have}）</div>
-        <button class="btn small" data-in="${item}" data-n="1" ${have ? '' : 'disabled'}>入れる</button>
+      return `<div class="row"><div class="grow">${itemName(item)}（機内 ${cur}/${CONFIG.ASSEMBLER_IN_CAP}・所持 ${have}）</div>
+        <button class="btn small" data-in="${item}" data-n="1" ${have ? '' : 'disabled'}>${t('入れる', 'Put')}</button>
         <button class="btn small" data-in="${item}" data-n="10" ${have ? '' : 'disabled'}>×10</button></div>`;
     }).join('') : '<div class="row"><span class="cost">まずレシピを選んでね</span></div>';
     const outTotal2 = invTotal(b.output);
     html = `<h2>⚙️ 組立機<button class="close-x">✕</button></h2>
       <h3>レシピ</h3>${recipeRows}
       <h3>投入</h3>${inRows}
-      <h3>加工中 ${b.job ? '：' + ITEMS[b.job].name : ''}</h3>
+      <h3>加工中 ${b.job ? '：' + itemName(b.job) : ''}</h3>
       <div class="progress"><i style="width:${prog}%"></i></div>
       <h3>完成品</h3>
-      <div class="row"><div class="grow">${Object.entries(b.output).map(([k, v]) => ITEMS[k].name + '×' + v).join('　') || 'まだない'}</div>
+      <div class="row"><div class="grow">${Object.entries(b.output).map(([k, v]) => itemName(k) + '×' + v).join('　') || 'まだない'}</div>
         <button class="btn primary" id="pb-takeout" ${outTotal2 ? '' : 'disabled'}>取り出す</button></div>` + removeBtn;
   }
   else if (b.type === 'lab') {
@@ -3399,8 +3488,8 @@ function openBuilding(b, keep) {
     }).join('');
     const inRows = curTech ? ['researchPack1', 'researchPack2'].filter(k => curTech.cost[k]).map(item => {
       const have = invCount(inv, item), cur = invCount(b.input, item), consumed = getResearchProgress(b.currentTech)[item] || 0, need = curTech.cost[item];
-      return `<div class="row"><div class="grow">${ITEMS[item].name}（消費 ${consumed}/${need}・投入待ち ${cur}・所持 ${have}）</div>
-        <button class="btn small" data-in="${item}" data-n="1" ${have ? '' : 'disabled'}>入れる</button>
+      return `<div class="row"><div class="grow">${itemName(item)}（消費 ${consumed}/${need}・投入待ち ${cur}・所持 ${have}）</div>
+        <button class="btn small" data-in="${item}" data-n="1" ${have ? '' : 'disabled'}>${t('入れる', 'Put')}</button>
         <button class="btn small" data-in="${item}" data-n="10" ${have ? '' : 'disabled'}>×10</button></div>`;
     }).join('') : '';
     html = `<h2>🔬 研究所<button class="close-x">✕</button></h2>
@@ -3413,43 +3502,41 @@ function openBuilding(b, keep) {
     const items = [...new Set([...Object.keys(b.inv), ...Object.keys(inv)])].filter(k => ITEMS[k]);
     const rows = items.map(k => `<div class="row">
       <span class="dot" style="background:${ITEMS[k].color}"></span>
-      <div class="grow">${ITEMS[k].name}<br><span class="cost">所持 ${invCount(inv, k)}｜箱 ${invCount(b.inv, k)}</span></div>
-      <button class="btn small" data-put="${k}" ${invCount(inv, k) ? '' : 'disabled'}>入れる</button>
+      <div class="grow">${itemName(k)}<br><span class="cost">${t(`所持 ${invCount(inv, k)}｜箱 ${invCount(b.inv, k)}`, `You have ${invCount(inv, k)} | Chest ${invCount(b.inv, k)}`)}</span></div>
+      <button class="btn small" data-put="${k}" ${invCount(inv, k) ? '' : 'disabled'}>${t('入れる', 'Put')}</button>
       <button class="btn small" data-put10="${k}" ${invCount(inv, k) ? '' : 'disabled'}>×10</button>
-      <button class="btn small" data-take="${k}" ${invCount(b.inv, k) ? '' : 'disabled'}>出す</button>
+      <button class="btn small" data-take="${k}" ${invCount(b.inv, k) ? '' : 'disabled'}>${t('出す', 'Take')}</button>
       <button class="btn small" data-take10="${k}" ${invCount(b.inv, k) ? '' : 'disabled'}>×10</button>
     </div>`).join('');
-    const title = b.type === 'chestIn' ? '📥 搬入口付き保管箱' : '📦 保管箱';
-    const note = b.type === 'chestIn' ? '<div class="row"><span class="cost">ベルトから直接受け入れ、隣接する空きベルトへ自動搬出もする</span></div>' : '';
-    html = `<h2>${title}（${total}/${CONFIG.CHEST_CAP}）<button class="close-x">✕</button></h2>${note}
-      ${rows || '<div class="row">アイテムがない</div>'}` + removeBtn;
-  }
-  else if (b.type === 'workbench') {
+    const title = b.type === 'chestIn' ? `📥 ${buildingName('chestIn')}` : `📦 ${buildingName('chest')}`;
+    const note = b.type === 'chestIn' ? `<div class="row"><span class="cost">${t('ベルトから直接受け入れ、隣接する空きベルトへ自動搬出もする', 'Accepts items directly from belts and can feed adjacent empty belts.')}</span></div>` : '';
+    html = `<h2>${title} (${total}/${CONFIG.CHEST_CAP})<button class="close-x">✕</button></h2>${note}
+      ${rows || `<div class="row">${t('アイテムがない', 'No items')}</div>`}` + removeBtn;
+  }  else if (b.type === 'workbench') {
     const rows = visibleRecipes().map(({ r, i, vis }) => {
       if (vis === 'partial') {
         return `<div class="row" style="opacity:.6">
           <span class="dot" style="background:var(--line)"></span>
-          <div class="grow"><b>？？？</b><br><span class="cost">材料：${recipeMaterialsText(r, vis)}</span></div>
+          <div class="grow"><b>？？？</b><br><span class="cost">${t('材料：', 'Materials: ')}${recipeMaterialsText(r, vis)}</span></div>
         </div>`;
       }
       const ok = canAfford(r.in);
       return `<div class="row">
         <span class="dot" style="background:${ITEMS[r.out].color}"></span>
-        <div class="grow"><b>${r.name}</b>×${r.outN}<br><span class="cost">材料：${recipeMaterialsText(r, vis)}</span></div>
-        <button class="btn ${ok ? 'primary' : ''}" data-craft="${i}" ${ok ? '' : 'disabled'}>作る</button>
+        <div class="grow"><b>${itemName(r.out)}</b>×${r.outN}<br><span class="cost">${t('材料：', 'Materials: ')}${recipeMaterialsText(r, vis)}</span></div>
+        <button class="btn ${ok ? 'primary' : ''}" data-craft="${i}" ${ok ? '' : 'disabled'}>${t('作る', 'Craft')}</button>
         <button class="btn small" data-craft5="${i}" ${ok ? '' : 'disabled'}>×5</button>
       </div>`;
     }).join('');
     const bu = CONFIG.BATTERY_UPGRADE_COST;
     const buOk = canAfford(bu) && !G.player.batteryUpgraded;
-    const buRow = `<h3>アップグレード</h3>
+    const buRow = `<h3>${t('アップグレード', 'Upgrades')}</h3>
       <div class="row">
         <span class="dot" style="background:#ffd94b"></span>
-        <div class="grow"><b>🔋 バッテリー拡張</b>（1回のみ）<br><span class="cost">${costText(bu)}</span><br>
-        <span class="cost">${G.player.batteryUpgraded ? '適用済み：最大容量+' + Math.round((CONFIG.BATTERY_UPGRADE_MULT - 1) * 100) + '%' : '最大バッテリー+' + Math.round((CONFIG.BATTERY_UPGRADE_MULT - 1) * 100) + '%'}</span></div>
-        <button class="btn ${buOk ? 'primary' : ''}" id="pb-battery-upgrade" ${buOk ? '' : 'disabled'}>強化</button>
-      </div>`;
-    // ぽん太強化：星晶コアに到達した後のご褒美なので、それまでは欄自体を出さない
+        <div class="grow"><b>${t('🔋 バッテリー拡張', '🔋 Battery Expansion')}</b>${t('（1回のみ）', ' (one time only)')}<br><span class="cost">${costText(bu)}</span><br>
+        <span class="cost">${G.player.batteryUpgraded ? t('適用済み：最大容量+', 'Applied: max capacity +') + Math.round((CONFIG.BATTERY_UPGRADE_MULT - 1) * 100) + '%' : t('最大バッテリー+', 'Max battery +') + Math.round((CONFIG.BATTERY_UPGRADE_MULT - 1) * 100) + '%'}</span></div>
+        <button class="btn ${buOk ? 'primary' : ''}" id="pb-battery-upgrade" ${buOk ? '' : 'disabled'}>${t('強化', 'Upgrade')}</button>
+      </div>`;    // ぽん太強化：星晶コアに到達した後のご褒美なので、それまでは欄自体を出さない
     const pontaRow = everHad('starCrystalCore') ? `<h3>🌟 ぽん太強化</h3>${CONFIG.PONTA_UPGRADES.map(u => {
       const owned = hasPontaUpgrade(u.id);
       const ok = !owned && canAfford(CONFIG.PONTA_UPGRADE_COST);
@@ -3459,40 +3546,38 @@ function openBuilding(b, keep) {
         <button class="btn ${ok ? 'primary' : ''}" data-ponta="${u.id}" ${ok ? '' : 'disabled'}>${owned ? '適用済み' : '強化する'}</button>
       </div>`;
     }).join('')}` : '';
-    html = `<h2>🔧 作業台<button class="close-x">✕</button></h2>${rows}${buRow}${pontaRow}` + removeBtn;
+    html = `<h2>${t('🔧 作業台', '🔧 Workbench')}<button class="close-x">✕</button></h2>${rows}${buRow}${pontaRow}` + removeBtn;
   }
   else if (b.type === 'antenna') {
-    html = `<h2>📡 通信アンテナ<button class="close-x">✕</button></h2>
-      <div class="row"><div class="grow">${b.active ? '起動中。救難信号を送信している…' : '準備完了！起動すれば救難信号を送信できる。'}</div></div>
-      ${b.active ? '' : '<div style="margin-top:12px"><button class="btn primary" id="pb-activate" style="width:100%;padding:14px;font-size:15px;">🚀 アンテナを起動する</button></div>'}` +
+    html = `<h2>📡 ${buildingName('antenna')}<button class="close-x">✕</button></h2>
+      <div class="row"><div class="grow">${b.active ? t('起動中。救難信号を送信している…', 'Online. Sending a distress signal…') : t('準備完了！起動すれば救難信号を送信できる。', 'Ready. Activate it to send a distress signal.')}</div></div>
+      ${b.active ? '' : `<div style="margin-top:12px"><button class="btn primary" id="pb-activate" style="width:100%;padding:14px;font-size:15px;">${t('🚀 アンテナを起動する', '🚀 Activate antenna')}</button></div>`}` +
       (b.active ? '' : removeBtn);
-  }
-  else if (b.type === 'arm' || b.type === 'fastArm') {
-    const title = b.type === 'fastArm' ? '🦾 高速アーム' : '🦾 アーム';
-    html = `<h2>${title}（向き：${DIR_VEC[b.dir].n}）<button class="close-x">✕</button></h2>
-      <div class="row"><div class="grow">後ろ側の設備/ベルトから1個取り、前（${DIR_VEC[b.dir].n}側）の設備/ベルトへ渡す。</div></div>
-      <div style="margin-top:10px"><button class="btn primary" id="pb-rotate" style="width:100%;padding:12px;">🔄 90度回転</button></div>` + upgradeBtn + removeBtn;
-  }
-  else if (b.type === 'filterArm') {
+  }  else if (b.type === 'arm' || b.type === 'fastArm') {
+    const title = b.type === 'fastArm' ? `🦾 ${buildingName('fastArm')}` : `🦾 ${buildingName('arm')}`;
+    html = `<h2>${title} ${t(`（向き：${DIR_VEC[b.dir].n}）`, `(Direction: ${DIR_VEC[b.dir].n})`)}<button class="close-x">✕</button></h2>
+      <div class="row"><div class="grow">${t(`後ろ側の設備/ベルトから1個取り、前（${DIR_VEC[b.dir].n}側）の設備/ベルトへ渡す。`, `Takes one item from the machine or belt behind and passes it to the machine or belt in front (${DIR_VEC[b.dir].n}).`)}</div></div>
+      <div style="margin-top:10px"><button class="btn primary" id="pb-rotate" style="width:100%;padding:12px;">${t('🔄 90度回転', '🔄 Rotate 90°')}</button></div>` + upgradeBtn + removeBtn;
+  }  else if (b.type === 'filterArm') {
     const itemOptions = Object.keys(ITEMS).map(k => `<div class="row">
         <span class="dot" style="background:${ITEMS[k].color}"></span>
-        <div class="grow">${ITEMS[k].name}</div>
+        <div class="grow">${itemName(k)}</div>
         <button class="btn ${b.filterItem === k ? 'primary' : ''}" data-filter-item="${k}">${b.filterItem === k ? '選択中' : '選ぶ'}</button>
       </div>`).join('');
     html = `<h2>🎯 フィルタアーム（向き：${DIR_VEC[b.dir].n}）<button class="close-x">✕</button></h2>
-      <div class="row"><div class="grow">後ろ側から「${b.filterItem ? ITEMS[b.filterItem].name : '未設定'}」だけを取り、前（${DIR_VEC[b.dir].n}側）へ渡す。それ以外は素通りさせる。</div></div>
+      <div class="row"><div class="grow">後ろ側から「${b.filterItem ? itemName(b.filterItem) : '未設定'}」だけを取り、前（${DIR_VEC[b.dir].n}側）へ渡す。それ以外は素通りさせる。</div></div>
       <div style="margin-top:10px"><button class="btn primary" id="pb-rotate" style="width:100%;padding:12px;">🔄 90度回転</button></div>
       <h3>対象アイテム</h3>${itemOptions}` + removeBtn;
   }
   else if (b.type === 'belt' || b.type === 'fastBelt') {
     const title = b.type === 'fastBelt' ? '⏩ 高速ベルト' : '➡️ ベルト';
     html = `<h2>${title}（向き：${DIR_VEC[b.dir].n}）<button class="close-x">✕</button></h2>
-      <div class="row"><div class="grow">乗ったアイテムを${DIR_VEC[b.dir].n}方向へ運ぶ。${b.item ? '現在：' + ITEMS[b.item].name : '空き'}</div></div>
+      <div class="row"><div class="grow">乗ったアイテムを${DIR_VEC[b.dir].n}方向へ運ぶ。${b.item ? '現在：' + itemName(b.item) : '空き'}</div></div>
       <div style="margin-top:10px"><button class="btn primary" id="pb-rotate" style="width:100%;padding:12px;">🔄 90度回転</button></div>` + upgradeBtn + removeBtn;
   }
   else if (b.type === 'splitter') {
     html = `<h2>↗️ 分配器（向き：${DIR_VEC[b.dir].n}）<button class="close-x">✕</button></h2>
-      <div class="row"><div class="grow">受け取ったアイテムを${DIR_VEC[b.dir].n}方向と${DIR_VEC[(b.dir + 1) % 4].n}方向へ交互に振り分ける。${b.item ? '現在：' + ITEMS[b.item].name : '空き'}</div></div>
+      <div class="row"><div class="grow">受け取ったアイテムを${DIR_VEC[b.dir].n}方向と${DIR_VEC[(b.dir + 1) % 4].n}方向へ交互に振り分ける。${b.item ? '現在：' + itemName(b.item) : '空き'}</div></div>
       <div style="margin-top:10px"><button class="btn primary" id="pb-rotate" style="width:100%;padding:12px;">🔄 90度回転</button></div>` + removeBtn;
   }
   else if (b.type === 'gate') {
@@ -3500,38 +3585,36 @@ function openBuilding(b, keep) {
     const tech = b.requiresTech ? researchById(b.requiresTech) : null;
     const cost = gateRepairCost(b);
     let body;
-    if (b.repaired) body = '修理済み。通行できる。';
-    else if (!techOk) body = `研究所で「${tech ? tech.name : '専用の研究'}」を完了すると修理できるようになる。`;
-    else body = 'この先への通路をふさいでいる。修理すれば通れるようになる。';
-    html = `<h2>🚧 壊れたゲート<button class="close-x">✕</button></h2>
+    if (b.repaired) body = t('修理済み。通行できる。', 'Repaired. You can pass through.');
+    else if (!techOk) body = t(`研究所で「${tech ? tech.name : '専用の研究'}」を完了すると修理できるようになる。`, `Complete ${tech ? localizeText(tech.name) : 'the required research'} in the lab to repair this gate.`);
+    else body = t('この先への通路をふさいでいる。修理すれば通れるようになる。', 'This gate blocks the path ahead. Repair it to pass through.');
+    html = `<h2>🚧 ${buildingName('gate')}<button class="close-x">✕</button></h2>
       <div class="row"><div class="grow">${body}</div></div>
-      ${(!b.repaired && techOk) ? `<div class="row"><div class="grow">修理コスト：${costText(cost)}</div></div>
-      <div style="margin-top:12px"><button class="btn primary" id="pb-repair" style="width:100%;padding:14px;font-size:15px;" ${canAfford(cost) ? '' : 'disabled'}>🔧 修理する</button></div>` : ''}`;
-  }
-  else if (b.type === 'beacon') {
+      ${(!b.repaired && techOk) ? `<div class="row"><div class="grow">${t('修理コスト：', 'Repair cost: ')}${costText(cost)}</div></div>
+      <div style="margin-top:12px"><button class="btn primary" id="pb-repair" style="width:100%;padding:14px;font-size:15px;" ${canAfford(cost) ? '' : 'disabled'}>${t('🔧 修理する', '🔧 Repair')}</button></div>` : ''}`;
+  }  else if (b.type === 'beacon') {
     const rescue = rescueTransmissionStatus(b);
     const power = rescue.snapshot;
     const powerLine = rescuePowerLine(power);
     let body;
     if (!b.active) {
-      body = `<div class="row"><div class="grow">位置と誘導信号を確立する準備ができている。</div></div>
-        <div style="margin-top:12px"><button class="btn primary" id="pb-beacon-activate" style="width:100%;min-height:44px;padding:14px;font-size:15px;">🛰️ 誘導ビーコンを起動する</button></div>${removeBtn}`;
+      body = `<div class="row"><div class="grow">${t('位置と誘導信号を確立する準備ができている。', 'Ready to establish location and guidance signals.')}</div></div>
+        <div style="margin-top:12px"><button class="btn primary" id="pb-beacon-activate" style="width:100%;min-height:44px;padding:14px;font-size:15px;">${t('🛰️ 誘導ビーコンを起動する', '🛰️ Activate guidance beacon')}</button></div>${removeBtn}`;
     } else if (G.rescueCompleted) {
-      body = `<div class="row"><div class="grow"><b style="color:var(--accent)">✅ 救難通信は確立済み</b><br>
-        <span class="cost">遠い航路から応答を受信した。工場と星の解析はこのまま続けられる。</span></div></div>`;
+      body = `<div class="row"><div class="grow"><b style="color:var(--accent)">${t('✅ 救難通信は確立済み', '✅ Rescue signal established')}</b><br>
+        <span class="cost">${t('遠い航路から応答を受信した。工場と星の解析はこのまま続けられる。', 'A distant route has answered. You can keep expanding the factory and studying the planet.')}</span></div></div>`;
     } else {
       const advMark = rescue.hasAdvancedGenerator ? '✅' : '⬜';
       const reserveMark = rescue.enoughReserve && rescue.powered ? '✅' : '⬜';
-      body = `<div class="row"><div class="grow"><b style="color:var(--accent)">✅ 誘導信号は確立済み</b><br>
-          <span class="cost">次は上位発電機の出力を使って、救難通信を完成させる。</span></div></div>
-        <h3>最大出力送信の条件</h3>
-        <div class="row"><div class="grow"><span id="beacon-adv-mark">${advMark}</span> 同じ電力網に稼働中の上位発電機</div></div>
-        <div class="row"><div class="grow"><span id="beacon-reserve-mark">${reserveMark}</span> 余剰電力 ${CONFIG.FINAL_TRANSMISSION_RESERVE}以上<br><span class="cost" id="beacon-power-line">現在：${powerLine}</span></div></div>
-        <div style="margin-top:12px"><button class="btn primary" id="pb-rescue-transmit" style="width:100%;min-height:44px;padding:14px;font-size:15px;" ${rescue.ready ? '' : 'disabled'}>🚀 最大出力で救難通信を送る</button></div>`;
+      body = `<div class="row"><div class="grow"><b style="color:var(--accent)">${t('✅ 誘導信号は確立済み', '✅ Guidance signal established')}</b><br>
+          <span class="cost">${t('次は上位発電機の出力を使って、救難通信を完成させる。', 'Next, use an advanced generator to complete the rescue signal.')}</span></div></div>
+        <h3>${t('最大出力送信の条件', 'Maximum-power transmission requirements')}</h3>
+        <div class="row"><div class="grow"><span id="beacon-adv-mark">${advMark}</span> ${t('同じ電力網に稼働中の上位発電機', 'An active advanced generator on the same power network')}</div></div>
+        <div class="row"><div class="grow"><span id="beacon-reserve-mark">${reserveMark}</span> ${t(`余剰電力 ${CONFIG.FINAL_TRANSMISSION_RESERVE}以上`, `Reserve power of at least ${CONFIG.FINAL_TRANSMISSION_RESERVE}`)}<br><span class="cost" id="beacon-power-line">${t('現在：', 'Now: ')}${powerLine}</span></div></div>
+        <div style="margin-top:12px"><button class="btn primary" id="pb-rescue-transmit" style="width:100%;min-height:44px;padding:14px;font-size:15px;" ${rescue.ready ? '' : 'disabled'}>${t('🚀 最大出力で救難通信を送る', '🚀 Send maximum-power rescue signal')}</button></div>`;
     }
-    html = `<h2>🛰️ 誘導ビーコン<button class="close-x">✕</button></h2>${body}`;
-  }
-  else if (b.type === 'generator' || b.type === 'advGenerator') {
+    html = `<h2>🛰️ ${buildingName('beacon')}<button class="close-x">✕</button></h2>${body}`;
+  }  else if (b.type === 'generator' || b.type === 'advGenerator') {
     const adv = b.type === 'advGenerator';
     const fuel = adv ? 'arcCore' : 'crystal';
     const cap = adv ? CONFIG.ADV_GEN_FUEL_CAP : CONFIG.GEN_FUEL_CAP;
@@ -3541,8 +3624,8 @@ function openBuilding(b, keep) {
     html = `<h2>${adv ? '🔋 上位発電機' : '🔋 小型発電機'}<button class="close-x">✕</button></h2>
       <div class="row"><div class="grow">${b.active ? '⚡ 発電中' : '停止中（燃料切れ）'}<br>
       <span class="cost">出力${output}・送電半径${radius}マス（無線。届く範囲の設備が動く）</span></div></div>
-      <div class="row"><div class="grow">${ITEMS[fuel].name}（燃料 ${cur}/${cap}・所持 ${have}）</div>
-        <button class="btn small" data-in="${fuel}" data-n="1" ${have ? '' : 'disabled'}>入れる</button>
+      <div class="row"><div class="grow">${itemName(fuel)}（燃料 ${cur}/${cap}・所持 ${have}）</div>
+        <button class="btn small" data-in="${fuel}" data-n="1" ${have ? '' : 'disabled'}>${t('入れる', 'Put')}</button>
         <button class="btn small" data-in="${fuel}" data-n="10" ${have ? '' : 'disabled'}>×10</button></div>` + removeBtn;
   }
   else if (b.type === 'relay') {
@@ -3707,29 +3790,28 @@ function refreshBeaconPowerStatus(b) {
 
 // --- 設定 ---
 function openSettings() {
-  showPanel(`<h2>⚙️ 設定<button class="close-x">✕</button></h2>
-    <div class="row"><div class="grow">言語<br><span class="cost">表示言語を切り替える</span></div>
-      <button class="btn ${language === 'en' ? 'primary' : ''}" id="st-language-toggle">${language === 'en' ? 'English' : '日本語'}</button></div>    <div class="row"><div class="grow">効果音<br><span class="cost">採掘・設置・研究完了などの短い操作音</span></div>
+  const languageRow = `<div class="row"><div class="grow">${t('言語', 'Language')}<br><span class="cost">${t('表示言語を切り替える', 'Change display language')}</span></div>
+      <button class="btn ${language === 'en' ? 'primary' : ''}" id="st-language-toggle">${language === 'en' ? 'English' : '日本語'}</button></div>`;
+  const howTo = language === 'en'
+    ? '• Tap to move / tap an ore vein to mine when nearby.<br>• Drag to pan, use +/− to zoom, and tap 📍 to find the robot.<br>• Watch the battery. It recharges automatically near your base.<br>• Tap the ⚡ display to check each power network’s supply, demand, and reserve.<br>• Activate the antenna and guidance beacon, then complete the rescue signal with an advanced generator.'
+    : '・タップで移動／鉱脈タップで採掘（近くにいるとき）<br>・ドラッグでスクロール、＋－でズーム、📍でロボの位置へ<br>・バッテリーに注意！拠点の近くで自動充電<br>・⚡上部の電力表示をタップすると、電力網ごとの供給・需要・余裕を確認できます<br>・アンテナと誘導ビーコンを起動し、最後は上位発電機の電力で救難通信を完成させよう';
+  showPanel(`<h2>${t('⚙️ 設定', '⚙️ Settings')}<button class="close-x">✕</button></h2>
+    ${languageRow}<div class="row"><div class="grow">${t('効果音', 'Sound effects')}<br><span class="cost">${t('採掘・設置・研究完了などの短い操作音', 'Short sounds for mining, building, and research completion.')}</span></div>
       <button class="btn ${sfxEnabled ? 'primary' : ''}" id="st-sfx-toggle">${sfxEnabled ? 'ON' : 'OFF'}</button></div>
-    <div class="row"><div class="grow">セーブデータ（JSON）</div>
-      <button class="btn" id="st-export">書き出す</button>
-      <button class="btn primary" id="st-copy">📋 コピー</button>
-      <button class="btn" id="st-import">読み込む</button></div>
-    <textarea id="st-json" placeholder="「書き出す」でここにJSONが出ます。読み込みはここに貼り付けて「読み込む」"></textarea>
-    <div class="row" style="margin-top:8px"><div class="grow">手動セーブ</div><button class="btn" id="st-save">セーブ</button></div>
-    <div class="row"><div class="grow">🔥 発熱時の負荷記録<br><span class="cost">直近2分のフレーム・処理時間・タイマー遅延を表示</span></div>
-      <button class="btn" id="st-perf-show">表示</button><button class="btn primary" id="st-perf-copy">📋 負荷をコピー</button></div>
-    <div class="row"><div class="grow">最初からやり直す<br><span class="cost">セーブデータを消して新しい星へ</span></div>
-      <button class="btn danger" id="st-reset">リセット</button></div>
-    <div class="row"><div class="grow">📖 解析ログ<br><span class="cost">星晶石チェーンで見つけた解析ログを見返せる</span></div>
-      <button class="btn" id="st-analysis-log">見る</button></div>
-    <h3>あそびかた</h3>
-    <div class="row"><span class="cost">
-      ・タップで移動／鉱脈タップで採掘（近くにいるとき）<br>
-      ・ドラッグでスクロール、＋－でズーム、📍でロボの位置へ<br>
-      ・バッテリーに注意！拠点の近くで自動充電<br>
-      ・⚡上部の電力表示をタップすると、電力網ごとの供給・需要・余裕を確認できます<br>
-      ・アンテナと誘導ビーコンを起動し、最後は上位発電機の電力で救難通信を完成させよう</span></div>`);
+    <div class="row"><div class="grow">${t('セーブデータ（JSON）', 'Save data (JSON)')}</div>
+      <button class="btn" id="st-export">${t('書き出す', 'Export')}</button>
+      <button class="btn primary" id="st-copy">📋 ${t('コピー', 'Copy')}</button>
+      <button class="btn" id="st-import">${t('読み込む', 'Import')}</button></div>
+    <textarea id="st-json" placeholder="${t('「書き出す」でここにJSONが出ます。読み込みはここに貼り付けて「読み込む」', 'Exported JSON appears here. Paste JSON here, then choose Import.')}"></textarea>
+    <div class="row" style="margin-top:8px"><div class="grow">${t('手動セーブ', 'Manual save')}</div><button class="btn" id="st-save">${t('セーブ', 'Save')}</button></div>
+    <div class="row"><div class="grow">🔥 ${t('発熱時の負荷記録', 'Performance report')}<br><span class="cost">${t('直近2分のフレーム・処理時間・タイマー遅延を表示', 'Shows frame, processing, and timer data from the last two minutes.')}</span></div>
+      <button class="btn" id="st-perf-show">${t('表示', 'Show')}</button><button class="btn primary" id="st-perf-copy">📋 ${t('負荷をコピー', 'Copy report')}</button></div>
+    <div class="row"><div class="grow">${t('最初からやり直す', 'Start over')}<br><span class="cost">${t('セーブデータを消して新しい星へ', 'Delete save data and begin on a new planet.')}</span></div>
+      <button class="btn danger" id="st-reset">${t('リセット', 'Reset')}</button></div>
+    <div class="row"><div class="grow">📖 ${t('解析ログ', 'Analysis log')}<br><span class="cost">${t('星晶石チェーンで見つけた解析ログを見返せる', 'Review analysis logs found in the star-crystal chain.')}</span></div>
+      <button class="btn" id="st-analysis-log">${t('見る', 'View')}</button></div>
+    <h3>${t('あそびかた', 'How to play')}</h3>
+    <div class="row"><span class="cost">${howTo}</span></div>`);
   openedPanel = null;
   panelEl.querySelector('#st-language-toggle').onclick = () => setLanguage(language === 'en' ? 'ja' : 'en');
   panelEl.querySelector('#st-sfx-toggle').onclick = () => {
@@ -3826,7 +3908,7 @@ function openAnalysisLog() {
   const rows = ANALYSIS_LOG_ORDER.map((k, i) => {
     const got = !!G.discovered[k];
     return `<div class="row" style="opacity:${got ? 1 : .5}">
-      <div class="grow"><b>記録${i + 1}：${got ? ITEMS[k].name : '？？？'}</b><br>
+      <div class="grow"><b>記録${i + 1}：${got ? itemName(k) : '？？？'}</b><br>
       <span class="cost">${got ? ANALYSIS_LOGS[k] : '未解析'}</span></div>
     </div>`;
   }).join('');
@@ -3890,10 +3972,16 @@ function completeRescueTransmission(b) {
   markDirty();
   return true;
 }
+const CLEAR_MOMENTS_EN = {
+  antenna: { title: 'First Signal Established', message: 'The communications antenna is online and has sent a short-range distress signal.<br>There is no answer yet. Expand the factory and communications equipment to reach farther.', button: 'Continue exploring' },
+  beacon: { title: 'Guidance Signal Established', message: 'The guidance beacon is online, sending this planet’s location through the night sky.<br>But reaching distant routes requires much more power.', button: 'Continue the factory' },
+  rescue: { title: 'Rescue Signal Established', message: 'The guidance beacon received the output of an advanced generator and sent the signal across the sea of stars.<br>A short reply arrives from a distant route.<br><br>Rescue signal established.<br>Unanalyzed data remaining: 98.4%. Continue exploration.', button: 'Continue the factory' }
+};
 function showClearMoment(title, message, variant, buttonText) {
-  document.getElementById('clear-title').textContent = title;
-  document.getElementById('clear-msg').innerHTML = message;
-  document.getElementById('btn-clear-continue').textContent = buttonText || 'つづける';
+  const localized = language === 'en' ? CLEAR_MOMENTS_EN[variant] : null;
+  document.getElementById('clear-title').textContent = localized ? localized.title : title;
+  document.getElementById('clear-msg').innerHTML = localized ? localized.message : message;
+  document.getElementById('btn-clear-continue').textContent = localized ? localized.button : (buttonText || 'つづける');
   drawClearArt(variant);
   document.getElementById('clear-overlay').style.display = 'flex';
 }
@@ -3956,10 +4044,69 @@ function drawClearArt(variant) {
 // =====================================================================
 let toastTimer = null;
 let toastLockUntil = 0;   // この時刻までは、priority指定のトーストが表示中なので他の通知で上書きしない
+const TOAST_TEXT_EN = {
+  '✕ 撤去終了': '✕ Removal mode ended',
+  '✕ 設置モードを終了': '✕ End build mode',
+  'ここには撤去できる設備がない': 'There is no removable machine here.',
+  'そこへは行けない': 'You cannot go there.',
+  '岩は通れない': 'You cannot pass through rock.',
+  '未探索の場所には置けない': 'You cannot build in unexplored areas.',
+  'すでに設備がある': 'There is already a machine there.',
+  'ロボの足元には置けない': 'You cannot build under the robot.',
+  '岩の上には置けない': 'You cannot build on rock.',
+  '鉱脈の上に置けるのは採掘機だけ': 'Only miners can be placed on ore veins.',
+  '材料が足りない': 'Not enough materials.',
+  'その設備はもう無い': 'That machine is gone.',
+  '設置できなかった（岩・鉱脈・設備・資材不足）': 'Could not build: rock, ore vein, machine, or insufficient materials.',
+  '撤去できる設備がなかった': 'No removable machine found.',
+  '向きを確認 → 同じ場所タップか🔄で回転、✅で設置確定': 'Check direction → tap the same spot or 🔄 to rotate, then ✅ to place.',
+  'ドラッグ（またはタップ）で設備を撤去（拠点・ゲートは対象外）': 'Drag or tap to remove machines. Bases and gates cannot be removed.',
+  'ゲートを修理した！奥へ進める（ベルトも通せるようになった）': 'Gate repaired. You can go farther, and belts can pass through.',
+  '📋 コピーした！': '📋 Copied!',
+  'セーブした！': 'Saved!',
+  'セーブデータを読み込んだ！': 'Save data loaded.',
+  'セーブデータを新しい形式に更新しました': 'Save data was updated to the latest format.'
+};
+Object.assign(TOAST_TEXT_EN, {
+  '手掘りには限界があります。採掘機を設置すると自動で掘り続けてくれます': 'Hand mining has limits. Build a miner to keep mining automatically.',
+  '⚠️ バッテリー残りわずか！拠点に戻って充電しよう': '⚠️ Battery low! Return to base to recharge.',
+  '🔋 バッテリー切れ！緊急帰還した（資源の一部を失った…）': '🔋 Battery empty! Emergency return triggered; some resources were lost.',
+  '未知の惑星に不時着した…。まずは鉱脈をタップして資源を集めよう！': 'You crash-landed on an unknown planet. Tap ore veins to gather resources.',
+  '書き出した！📋コピーボタンか、全選択してコピーしてね': 'Exported! Use 📋 Copy, or select all and copy manually.',
+  '自動コピーできなかった…全選択したので手動でコピーしてね': 'Automatic copy failed. Everything is selected; copy it manually.',
+  '🔥 発熱時の負荷記録を表示した！': '🔥 Performance report displayed.',
+  '📋 負荷記録をコピーした！': '📋 Performance report copied.',
+  '読み込み失敗…。JSONと端末の保存容量を確認してね': 'Import failed. Check the JSON and available device storage.',
+  'セーブデータを削除できませんでした。ブラウザの保存設定を確認してね': 'Could not delete save data. Check browser storage settings.',
+  '救難通信の直前にセーブできなかった。空き容量を確認して、もう一度送信してね': 'Could not save before sending the rescue signal. Check available storage and try again.',
+  '元のセーブデータを保護中です。正しいJSONを読み込むか、リセットしてください': 'Your original save is protected. Import valid JSON or reset the game.',
+  'セーブできませんでした。端末の空き容量とブラウザの保存設定を確認してね': 'Could not save. Check device storage and browser storage settings.',
+  '保存データを安全に読み込めませんでした。元データを保護しています。設定から正しいJSONを読み込むか、リセットしてください': 'Could not safely load save data. Your original data is protected. Import valid JSON from Settings or reset.',
+  '保存データへアクセスできませんでした。ブラウザの保存設定を確認してね': 'Could not access save data. Check browser storage settings.'
+});
+function localizeToast(msg) {
+  if (language !== 'en' || typeof msg !== 'string') return msg;
+  if (TOAST_TEXT_EN[msg]) return TOAST_TEXT_EN[msg];
+  const direct = localizeText(msg);
+  if (direct !== msg) return direct;
+  let match;
+if ((match = msg.match(/^(.+)の鉱脈を掘りつくした$/))) return `${match[1]} vein depleted.`;
+  if ((match = msg.match(/^(.+)を発見！新しいレシピのヒントが増えた$/))) return `Discovered ${match[1]}! New recipe hints are available.`;
+  if ((match = msg.match(/^バッテリーを拡張した！最大容量\+(\d+)%$/))) return `Battery expanded! Maximum capacity +${match[1]}%.`;
+  if ((match = msg.match(/^採掘機は鉱脈から(\d+)マス以内に置く$/))) return `Place the miner within ${match[1]} tiles of an ore vein.`;
+  if ((match = msg.match(/^アンテナは拠点から(\d+)マス以内に設置する$/))) return `Place the antenna within ${match[1]} tiles of the base.`;
+  if ((match = msg.match(/^(.+)を設置した！$/))) return `Built ${match[1]}.`;
+  if ((match = msg.match(/^(.+)を撤去した（材料は返却）$/))) return `Removed ${match[1]}. Materials returned.`;
+  if ((match = msg.match(/^(.+)を置く場所をタップ（ドラッグで連続設置）$/))) return `Tap to place ${match[1]}. Drag to place a line.`;
+  if ((match = msg.match(/^(.+)を置く場所をタップ$/))) return `Tap to place ${match[1]}.`;
+  if ((match = msg.match(/^(.+)を(\d+)個設置した$/))) return `Built ${match[2]} ${match[1]}.`;
+  if ((match = msg.match(/^(\d+)個の設備を撤去した$/))) return `Removed ${match[1]} machines.`;
+  return msg;
+}
 function toast(msg, kind, durMs, priority) {
   if (!priority && Date.now() < toastLockUntil) return;   // 連打中の他のトースト（掘りつくした等）に上書きされないようにする
   const el = document.getElementById('toast');
-  el.textContent = msg;
+  el.textContent = localizeToast(msg);
   el.className = kind || '';
   el.style.display = 'block';
   clearTimeout(toastTimer);
@@ -4697,7 +4844,7 @@ function showOfflineReport(seconds, before, after, offlineResult = null) {
     .filter(r => r.diff !== 0 && ITEMS[r.k])
     .sort((a, b) => b.diff - a.diff);
   const list = rows.length
-    ? rows.map(r => `<div class="row"><span class="dot" style="background:${ITEMS[r.k].color}"></span><div class="grow">${ITEMS[r.k].name}</div><b style="color:${r.diff > 0 ? 'var(--accent)' : 'var(--danger)'}">${r.diff > 0 ? '+' : ''}${r.diff}</b></div>`).join('')
+    ? rows.map(r => `<div class="row"><span class="dot" style="background:${ITEMS[r.k].color}"></span><div class="grow">${itemName(r.k)}</div><b style="color:${r.diff > 0 ? 'var(--accent)' : 'var(--danger)'}">${r.diff > 0 ? '+' : ''}${r.diff}</b></div>`).join('')
     : '<div class="row">目立った変化はなかった</div>';
   const protectedRows = offlineResult?.protectedNetworks?.length
     ? `<h3>燃料保護のため休止</h3>${offlineResult.protectedNetworks.map(item => {
@@ -4715,7 +4862,7 @@ function showOfflineReport(seconds, before, after, offlineResult = null) {
 // バージョンチェック（インストール済みPWAにコード更新が反映されない対策）
 // デプロイのたびにGAME_VERSIONを上げると、開いたままのPWAに更新通知が出せる
 // =====================================================================
-const GAME_VERSION = '4.27.0';
+const GAME_VERSION = '4.30.0';
 async function checkForUpdate() {
   try {
     // cache無視で自身(index.html)を再取得し、埋め込まれたGAME_VERSION表記を比較する

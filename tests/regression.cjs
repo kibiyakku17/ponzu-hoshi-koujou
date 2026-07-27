@@ -109,7 +109,7 @@ const run = code => vm.runInContext(code, sandbox);
 const runAsync = code => vm.runInContext(`(async () => { ${code} })()`, sandbox);
 
 (async () => {
-assert.equal(run('GAME_VERSION'), '4.27.0');
+assert.equal(run('GAME_VERSION'), '4.30.0');
 assert.equal(run('SAVE_VERSION'), 9);
 assert.equal(run('CONFIG.TARGET_FPS'), 30);
 assert.match(html, /rawGapMs \+ 0\.5 < frameIntervalMs/);
@@ -717,14 +717,66 @@ const localization = run(`(() => {
   const translated = [
     localizeText('⚡充電中'),
     localizeText('採掘機Mk2'),
-    localizeText('供給 15 / 需要 0'),
+    localizeText('石'),
+    itemName('stone'),
+    itemName('crystal'),
+    t('設定', 'Settings'),
+    t('材料：', 'Materials: '),
+    buildCategoryName(BUILD_CATEGORIES[0]),
+    localizeToast('✕ 撤去終了'),
+    localizeToast('Minerを設置した！'),
+    localizeText('⚡ 電力供給中'),
+    localizeText('🎉 すべての目標を達成した！自由に工場をひろげよう'),
     localizeText('セーブデータを消して最初からやり直す？'),
+    questText(QUESTS_POST.find(q => q.id === 'rescue')),
   ];
   language = 'ja';
   return translated;
 })()`);
 assert.deepEqual(JSON.parse(JSON.stringify(localization)), [
-  '⚡ Charging', 'Miner Mk2', 'Supply 15 / Demand 0', 'Delete this save data and start over?',
+  '⚡ Charging', 'Miner Mk2', 'Stone', 'Stone', 'Energy Crystal', 'Settings', 'Materials: ', '⛏️ Production', '✕ Removal mode ended', 'Built Miner.', '⚡ Power supplied',
+  '🎉 All objectives complete! Keep expanding your factory.',
+  'Delete this save data and start over?',
+  'Connect the Guidance Beacon to the same network as an Advanced Generator and send the <b>Maximum-Power Rescue Signal</b> with at least 20 reserve power.',
+]);
+const clearMomentEnglish = run(`(() => {
+  language = 'en';
+  const result = ['antenna', 'beacon', 'rescue'].map(variant => {
+    showClearMoment('', '', variant, '');
+    return [
+      document.getElementById('clear-title').textContent,
+      document.getElementById('clear-msg').innerHTML,
+      document.getElementById('btn-clear-continue').textContent,
+    ];
+  });
+  language = 'ja';
+  return result;
+})()`);
+assert.deepEqual(JSON.parse(JSON.stringify(clearMomentEnglish)), [
+  ['First Signal Established', 'The communications antenna is online and has sent a short-range distress signal.<br>There is no answer yet. Expand the factory and communications equipment to reach farther.', 'Continue exploring'],
+  ['Guidance Signal Established', 'The guidance beacon is online, sending this planet’s location through the night sky.<br>But reaching distant routes requires much more power.', 'Continue the factory'],
+  ['Rescue Signal Established', 'The guidance beacon received the output of an advanced generator and sent the signal across the sea of stars.<br>A short reply arrives from a distant route.<br><br>Rescue signal established.<br>Unanalyzed data remaining: 98.4%. Continue exploration.', 'Continue the factory'],
+]);
+const toastEnglish = run(`(() => {
+  language = 'en';
+  const result = [
+    localizeToast('未知の惑星に不時着した…。まずは鉱脈をタップして資源を集めよう！'),
+    localizeToast('手掘りには限界があります。採掘機を設置すると自動で掘り続けてくれます'),
+    localizeToast('Iron Plateを発見！新しいレシピのヒントが増えた'),
+    localizeToast('バッテリーを拡張した！最大容量+50%'),
+    localizeToast('採掘機は鉱脈から2マス以内に置く'),
+    localizeToast('✕ 設置モードを終了'),
+  ];
+  language = 'ja';
+  return result;
+})()`);
+assert.deepEqual(JSON.parse(JSON.stringify(toastEnglish)), [
+  'You crash-landed on an unknown planet. Tap ore veins to gather resources.',
+  'Hand mining has limits. Build a miner to keep mining automatically.',
+  'Discovered Iron Plate! New recipe hints are available.',
+  'Battery expanded! Maximum capacity +50%.',
+  'Place the miner within 2 tiles of an ore vein.',
+  '✕ End build mode',
 ]);
 assert.match(html, /ponzu_hoshi_koujou_language/);
 assert.match(html, /id="st-language-toggle"/);
