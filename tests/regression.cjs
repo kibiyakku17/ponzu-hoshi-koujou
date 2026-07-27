@@ -109,7 +109,7 @@ const run = code => vm.runInContext(code, sandbox);
 const runAsync = code => vm.runInContext(`(async () => { ${code} })()`, sandbox);
 
 (async () => {
-assert.equal(run('GAME_VERSION'), '4.26.0');
+assert.equal(run('GAME_VERSION'), '4.27.0');
 assert.equal(run('SAVE_VERSION'), 9);
 assert.equal(run('CONFIG.TARGET_FPS'), 30);
 assert.match(html, /rawGapMs \+ 0\.5 < frameIntervalMs/);
@@ -712,6 +712,23 @@ assert.match(run('panelEl.innerHTML'), /燃料保護のため休止/);
 assert.match(run('panelEl.innerHTML'), /第3エリア電力網/);
 
 assert(!html.includes('建設メニューの「基本」から小型発電機'));
+const localization = run(`(() => {
+  language = 'en';
+  const translated = [
+    localizeText('⚡充電中'),
+    localizeText('採掘機Mk2'),
+    localizeText('供給 15 / 需要 0'),
+    localizeText('セーブデータを消して最初からやり直す？'),
+  ];
+  language = 'ja';
+  return translated;
+})()`);
+assert.deepEqual(JSON.parse(JSON.stringify(localization)), [
+  '⚡ Charging', 'Miner Mk2', 'Supply 15 / Demand 0', 'Delete this save data and start over?',
+]);
+assert.match(html, /ponzu_hoshi_koujou_language/);
+assert.match(html, /id="st-language-toggle"/);
+
 console.log('regression ok: missions/research guide, map, protected offline production, save validation/migration, power grids, rescue completion, save failure UI');
 })().catch(error => {
   console.error(error);

@@ -353,7 +353,108 @@ const CONFIG = {
 // =====================================================================
 // サウンド（外部音声ファイルは使わずWeb Audio APIのoscillatorでコード生成する）
 // =====================================================================
-const SFX_KEY = 'ponzu_hoshi_koujou_sfx';
+const LANGUAGE_KEY = 'ponzu_hoshi_koujou_language';
+let language = localStorage.getItem(LANGUAGE_KEY) === 'en' ? 'en' : 'ja';
+
+// UIの日本語を英語表示へ変換する。ゲーム内のID・セーブデータは翻訳しない。
+const EN_TEXT = {
+  'ひらけ！ほしこうじょう': 'Open! Hoshi Factory', 'ほしこうじょう': 'Hoshi Factory',
+  '不時着ロボが資源を採り工場を組む2Dサンドボックス': 'A 2D sandbox where a crash-landed robot gathers resources and builds a factory.',
+  '⚡充電中': '⚡ Charging', '電力状況を開く': 'Open power status', 'ロボへ': 'Center on robot', '設定': 'Settings',
+  '🔨 建設': '🔨 Build', '🗑 撤去': '🗑 Remove', '🔄 向きを変える': '🔄 Rotate', '✅ この向きで設置': '✅ Place this way',
+  '↩️ 元に戻す': '↩️ Undo', '✕ 設置キャンセル': '✕ Cancel build', '🆕 新しいバージョンがあります。タップして更新': '🆕 A new version is available. Tap to update',
+  '🌙 留守中の生産を計算中…': '🌙 Calculating offline production…', '第一通信 確立': 'First Signal Established',
+  '通信アンテナが起動し、短距離の救難信号を送信した。': 'The communications antenna is online and has sent a short-range distress signal.',
+  'つづける': 'Continue', '日本語': 'Japanese', '言語': 'Language', '表示言語を切り替える': 'Change display language',
+  '効果音': 'Sound effects', '採掘・設置・研究完了などの短い操作音': 'Short sounds for mining, building, and research completion.',
+  'セーブデータ（JSON）': 'Save data (JSON)', '書き出す': 'Export', '📋 コピー': '📋 Copy', '読み込む': 'Import',
+  '手動セーブ': 'Manual save', 'セーブ': 'Save', '🔥 発熱時の負荷記録': '🔥 Performance report',
+  '直近2分のフレーム・処理時間・タイマー遅延を表示': 'Shows frame, processing, and timer data from the last two minutes.',
+  '表示': 'Show', '📋 負荷をコピー': '📋 Copy report', '最初からやり直す': 'Start over',
+  'セーブデータを消して新しい星へ': 'Delete save data and begin on a new planet.', 'リセット': 'Reset',
+  '📖 解析ログ': '📖 Analysis log', '星晶石チェーンで見つけた解析ログを見返せる': 'Review analysis logs found in the star-crystal chain.',
+  '見る': 'View', 'あそびかた': 'How to play',
+  '・タップで移動／鉱脈タップで採掘（近くにいるとき）': '• Tap to move / tap an ore vein to mine when nearby.',
+  '・ドラッグでスクロール、＋－でズーム、📍でロボの位置へ': '• Drag to pan, use +/− to zoom, and tap 📍 to find the robot.',
+  '・バッテリーに注意！拠点の近くで自動充電': '• Watch the battery. It recharges automatically near your base.',
+  '・⚡上部の電力表示をタップすると、電力網ごとの供給・需要・余裕を確認できます': '• Tap the ⚡ display to check each power network’s supply, demand, and reserve.',
+  '・アンテナと誘導ビーコンを起動し、最後は上位発電機の電力で救難通信を完成させよう': '• Activate the antenna and guidance beacon, then complete the rescue signal with an advanced generator.',
+  '鉄鉱石': 'Iron Ore', '石ブロック': 'Stone Block', 'エネルギー結晶': 'Energy Crystal', '鉄板': 'Iron Plate', '部品': 'Parts',
+  '銅鉱石': 'Copper Ore', '銅線': 'Copper Wire', '回路': 'Circuit', '研究パックI': 'Research Pack I', '研究パックII': 'Research Pack II',
+  '星晶石': 'Star Crystal', '高純度星晶石': 'Refined Star Crystal', '星晶コア': 'Star Crystal Core', 'アークコア': 'Arc Core',
+  '拠点': 'Base', '採掘機Mk2': 'Miner Mk2', '採掘機': 'Miner', '精錬炉': 'Furnace', '保管箱': 'Storage Chest', '作業台': 'Workbench',
+  '通信アンテナ': 'Communications Antenna', '高速アーム': 'Fast Arm', 'フィルタアーム': 'Filter Arm', 'アーム': 'Arm', '高速ベルト': 'Fast Belt', 'ベルト': 'Belt',
+  '壊れたゲート': 'Broken Gate', '誘導ビーコン': 'Guidance Beacon', '組立機': 'Assembler', '研究所': 'Lab', '分配器': 'Splitter',
+  '搬入口付き保管箱': 'Input Chest', '小型発電機': 'Small Generator', '上位発電機': 'Advanced Generator', '蓄電池': 'Battery Bank', '無線中継塔': 'Relay Tower',
+  '生産': 'Production', '搬送': 'Logistics', '電力': 'Power', '特殊': 'Special', '作成可能': 'Craftable',
+  '設置': 'Build', '設置する': 'Build', '撤去する': 'Remove', '修理する': 'Repair', '入れる': 'Insert', '出す': 'Take out', '回収する': 'Collect',
+  '取り出す': 'Collect output', '作る': 'Craft', '選ぶ': 'Select', '選択中': 'Selected', '完了': 'Complete', 'ロック中': 'Locked',
+  'アップグレード': 'Upgrades', '強化': 'Upgrade', '強化する': 'Upgrade', '適用済み': 'Applied', '必要素材：': 'Required materials: ',
+  '材料：': 'Materials: ', '所持 ': 'Inventory ', '箱 ': 'Chest ', '投入': 'Input', '完成品': 'Output', '加工中': 'Processing', 'レシピ': 'Recipe',
+  '電力状況': 'Power Status', '全体': 'Overall', '供給 ': 'Supply ', '需要 ': 'Demand ', '余裕 ': 'Reserve ', '不足 ': 'Deficit ',
+  '発電機 ': 'Generators ', '小型': 'Small ', '上位': 'Advanced ', '停電中': 'Power outage', '蓄電池で補給中': 'Battery support active',
+  '余裕わずか': 'Low reserve', '安定': 'Stable', '現在：': 'Now: ', '空き': 'Empty', 'からっぽ': 'Empty', '未設定': 'Not set',
+  '起動中': 'Online', '停止中（燃料切れ）': 'Offline (out of fuel)', '発電中': 'Generating', '修理済み。通行できる。': 'Repaired. You can pass through.',
+  'アイテムがない': 'No items', 'まだない': 'None yet', '研究できる': 'Research available', '研究中：': 'Researching: ',
+  '研究の進め方': 'How research works', 'このカテゴリにはまだ何もない（研究で解禁されるものがあります）': 'Nothing is available in this category yet. Research unlocks more.',
+  '供給は発電量、需要は接続中の設備が必要とする電力です。余裕が0を下回ると設備が止まり、蓄電池があれば一時的に不足を補います。': 'Supply is generated power; demand is power required by connected machines. Machines stop when reserve falls below zero, while battery banks can temporarily cover the gap.',
+  '表示できる電力網がありません': 'No power networks to display.', 'もちもの：なし（鉱脈をタップで採掘）': 'Inventory: empty (tap an ore vein to mine).',
+  'を置く場所をタップ': 'Tap where you want to place it', '向きを確認 → 同じ場所タップか🔄で回転、✅で設置確定': 'Check direction → tap the same spot or 🔄 to rotate, then ✅ to place.',
+  'ドラッグ（またはタップ）で設備を撤去（拠点・ゲートは対象外）': 'Drag (or tap) to remove machines. Bases and gates cannot be removed.',
+  'を設置した': ' placed', '設置できなかった（岩・鉱脈・設備・資材不足）': 'Could not build (rock, ore vein, machine, or insufficient materials).',
+  '個の設備を撤去した': ' machines removed', '撤去できる設備がなかった': 'No removable machine found.',
+  'セーブした！': 'Saved!', '書き出した！📋コピーボタンか、全選択してコピーしてね': 'Exported! Use 📋 Copy or select all and copy.',
+  '📋 コピーした！': '📋 Copied!', '自動コピーできなかった…全選択したので手動でコピーしてね': 'Could not copy automatically. Everything is selected for manual copying.',
+  '読み込み失敗…。JSONと端末の保存容量を確認してね': 'Import failed. Check the JSON and available device storage.',
+  'セーブデータを消して最初からやり直す？': 'Delete this save data and start over?',
+  'セーブデータを削除できませんでした。ブラウザの保存設定を確認してね': 'Could not delete save data. Check your browser storage settings.',
+  'セーブできませんでした。端末の空き容量とブラウザの保存設定を確認してね': 'Could not save. Check device storage and browser storage settings.'
+};
+const EN_TEXT_ENTRIES = Object.entries(EN_TEXT).sort((a, b) => b[0].length - a[0].length);
+function localizeText(value) {
+  if (language !== 'en' || typeof value !== 'string') return value;
+  let translated = value;
+  for (const [ja, en] of EN_TEXT_ENTRIES) translated = translated.split(ja).join(en);
+  return translated;
+}
+function localizeDocument(root = document) {
+  if (language !== 'en') return;
+  const walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT);
+  const nodes = [];
+  while (walker.nextNode()) nodes.push(walker.currentNode);
+  for (const node of nodes) {
+    const translated = localizeText(node.nodeValue);
+    if (translated !== node.nodeValue) node.nodeValue = translated;
+  }
+  const elements = root.querySelectorAll ? root.querySelectorAll('[title],[aria-label],[placeholder]') : [];
+  for (const el of elements) for (const attr of ['title', 'aria-label', 'placeholder']) {
+    if (el.hasAttribute(attr)) el.setAttribute(attr, localizeText(el.getAttribute(attr)));
+  }
+}
+function setLanguage(nextLanguage) {
+  localStorage.setItem(LANGUAGE_KEY, nextLanguage === 'en' ? 'en' : 'ja');
+  location.reload();
+}
+const nativeConfirm = window.confirm.bind(window);
+window.confirm = message => nativeConfirm(localizeText(message));
+if (typeof CanvasRenderingContext2D !== 'undefined') {
+  for (const method of ['fillText', 'strokeText', 'measureText']) {
+    const original = CanvasRenderingContext2D.prototype[method];
+    CanvasRenderingContext2D.prototype[method] = function(text, ...args) {
+      return original.call(this, localizeText(String(text)), ...args);
+    };
+  }
+}
+if (language === 'en') {
+  const translateInitialUi = () => {
+    document.documentElement.lang = 'en';
+    document.title = 'Open! Hoshi Factory';
+    localizeDocument(document);
+    new MutationObserver(() => localizeDocument(document.body)).observe(document.body, { childList: true, subtree: true, characterData: true });
+  };
+  if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', translateInitialUi, { once: true });
+  else translateInitialUi();
+}const SFX_KEY = 'ponzu_hoshi_koujou_sfx';
 let sfxEnabled = localStorage.getItem(SFX_KEY) !== '0';   // 未設定ならデフォルトON
 let audioCtx = null;
 function ensureAudioCtx() {
@@ -3607,7 +3708,8 @@ function refreshBeaconPowerStatus(b) {
 // --- 設定 ---
 function openSettings() {
   showPanel(`<h2>⚙️ 設定<button class="close-x">✕</button></h2>
-    <div class="row"><div class="grow">効果音<br><span class="cost">採掘・設置・研究完了などの短い操作音</span></div>
+    <div class="row"><div class="grow">言語<br><span class="cost">表示言語を切り替える</span></div>
+      <button class="btn ${language === 'en' ? 'primary' : ''}" id="st-language-toggle">${language === 'en' ? 'English' : '日本語'}</button></div>    <div class="row"><div class="grow">効果音<br><span class="cost">採掘・設置・研究完了などの短い操作音</span></div>
       <button class="btn ${sfxEnabled ? 'primary' : ''}" id="st-sfx-toggle">${sfxEnabled ? 'ON' : 'OFF'}</button></div>
     <div class="row"><div class="grow">セーブデータ（JSON）</div>
       <button class="btn" id="st-export">書き出す</button>
@@ -3629,6 +3731,7 @@ function openSettings() {
       ・⚡上部の電力表示をタップすると、電力網ごとの供給・需要・余裕を確認できます<br>
       ・アンテナと誘導ビーコンを起動し、最後は上位発電機の電力で救難通信を完成させよう</span></div>`);
   openedPanel = null;
+  panelEl.querySelector('#st-language-toggle').onclick = () => setLanguage(language === 'en' ? 'ja' : 'en');
   panelEl.querySelector('#st-sfx-toggle').onclick = () => {
     setSfxEnabled(!sfxEnabled);
     if (sfxEnabled) sfxCraft();   // ONにした直後に確認用の短い音を鳴らす
@@ -4612,7 +4715,7 @@ function showOfflineReport(seconds, before, after, offlineResult = null) {
 // バージョンチェック（インストール済みPWAにコード更新が反映されない対策）
 // デプロイのたびにGAME_VERSIONを上げると、開いたままのPWAに更新通知が出せる
 // =====================================================================
-const GAME_VERSION = '4.26.0';
+const GAME_VERSION = '4.27.0';
 async function checkForUpdate() {
   try {
     // cache無視で自身(index.html)を再取得し、埋め込まれたGAME_VERSION表記を比較する
